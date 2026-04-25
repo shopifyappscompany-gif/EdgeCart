@@ -24,7 +24,6 @@ export const action = async ({ request }) => {
     upsellMinQuantity: parseInt(form.get("upsellMinQuantity") || "2", 10),
     upsellProducts: String(form.get("upsellProducts") || "[]"),
     upsellTriggerProductIds: String(form.get("upsellTriggerProductIds") || "[]"),
-    updatedAt: new Date(),
   };
 
   await prisma.cartSettings.upsert({
