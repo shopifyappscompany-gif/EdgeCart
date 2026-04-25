@@ -26,7 +26,6 @@ export const action = async ({ request }) => {
     bannerBgColor: String(form.get("bannerBgColor") || "#1a1a1a"),
     bannerTextColor: String(form.get("bannerTextColor") || "#ffffff"),
     discountEnabled: form.get("discountEnabled") === "true",
-    updatedAt: new Date(),
   };
 
   await prisma.cartSettings.upsert({

@@ -397,6 +397,12 @@
   font-size: 13px;
   color: #555;
 }
+.ec-freebie__adding {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
 .ec-freebie__add-btn {
   width: 100%;
   padding: 11px;

@@ -9,12 +9,13 @@
   var SHOP  = window.EdgeCartShop  || "";
 
   /* ── State ─────────────────────────────────────────────── */
-  var settings      = null;
-  var cart          = null;
-  var discountCode  = "";
-  var isOpen        = false;
-  var initialized   = false;
-  var updatingKeys  = {};   // line keys being updated
+  var settings         = null;
+  var cart             = null;
+  var discountCode     = "";
+  var isOpen           = false;
+  var initialized      = false;
+  var updatingKeys     = {};   // line keys being updated
+  var freebieAutoSync  = false; // prevent concurrent freebie add/remove
 
   /* ===========================================================
      BOOT
@@ -29,6 +30,7 @@
         buildDOM();
         attachGlobalListeners();
         initialized = true;
+        syncFreebie();
       })
       .catch(function (err) {
         console.warn("[EdgeCart] init error:", err);
@@ -262,17 +264,16 @@
   function buildFreebieHTML() {
     if (!settings.freebieProductVariantId) return "";
 
-    var alreadyAdded = cart.items.some(function (i) {
-      return String(i.variant_id) === extractId(settings.freebieProductVariantId);
-    });
+    var numId      = extractId(settings.freebieProductVariantId);
+    var inCart     = cart.items.some(function (i) { return String(i.variant_id) === numId; });
+    var unlocked   = checkFreebie();
 
-    if (alreadyAdded) {
+    if (inCart) {
       return '<div class="ec-freebie ec-freebie--added">✓ ' + esc(settings.freebieTitle || "Free gift added!") + '</div>';
     }
 
-    var unlocked = checkFreebie();
-
     if (unlocked) {
+      /* Auto-applying — show brief adding state */
       return [
         '<div class="ec-freebie ec-freebie--available">',
           '<div class="ec-freebie__row">',
@@ -284,9 +285,9 @@
               settings.freebieProductTitle
                 ? '<p class="ec-freebie__product">' + esc(settings.freebieProductTitle) + '</p>'
                 : '',
+              '<p class="ec-freebie__adding">Adding to your cart…</p>',
             '</div>',
           '</div>',
-          '<button class="ec-freebie__add-btn" id="ec-add-freebie">Add Free Gift</button>',
         '</div>',
       ].join("");
     }
@@ -302,6 +303,43 @@
         '</div>',
       '</div>',
     ].join("");
+  }
+
+  /* ── Freebie auto-sync ─────────────────────────────────── */
+  function syncFreebie() {
+    if (freebieAutoSync) return;
+    if (!settings || !settings.freebieEnabled || !settings.freebieProductVariantId) return;
+    if (!cart) return;
+
+    var numId      = extractId(settings.freebieProductVariantId);
+    var freebieItem = cart.items.find(function (i) { return String(i.variant_id) === numId; });
+    var unlocked   = checkFreebie();
+
+    if (unlocked && !freebieItem) {
+      freebieAutoSync = true;
+      cartAdd(numId, 1, { _edge_cart_freebie: "true" })
+        .then(function () {
+          freebieAutoSync = false;
+          if (isOpen) render();
+          syncCartBadges();
+        })
+        .catch(function (err) {
+          freebieAutoSync = false;
+          console.warn("[EdgeCart] Freebie auto-add failed:", err);
+        });
+    } else if (!unlocked && freebieItem) {
+      freebieAutoSync = true;
+      cartChange(freebieItem.key, 0)
+        .then(function () {
+          freebieAutoSync = false;
+          if (isOpen) render();
+          syncCartBadges();
+        })
+        .catch(function (err) {
+          freebieAutoSync = false;
+          console.warn("[EdgeCart] Freebie auto-remove failed:", err);
+        });
+    }
   }
 
   /* ── Upsell HTML ───────────────────────────────────────── */
@@ -442,19 +480,19 @@
 
       setSubmitBtnLoading(form, true);
       cartAdd(vid, qty, {})
-        .then(function () { render(); openCart(); })
+        .then(function () { render(); openCart(); syncFreebie(); })
         .catch(function () { form.submit(); })
         .finally(function () { setSubmitBtnLoading(form, false); });
     }, true);
 
     /* Intercept cart icon / /cart link clicks */
     document.addEventListener("click", function (e) {
+      /* Never intercept clicks that originate inside our own drawer */
+      if (e.target.closest("#ec-cart")) return;
       var link = e.target.closest(
-        'a[href="/cart"], a[href^="/cart?"], [data-cart-toggle], .cart-link, .header__cart, .cart-icon-bubble, [aria-label*="cart" i], [aria-label*="Cart" i]'
+        'a[href="/cart"], a[href^="/cart?"], [data-cart-toggle], .cart-link, .header__cart, .cart-icon-bubble'
       );
       if (!link) return;
-      /* Let checkout links through */
-      if (link.href && link.href.includes("/checkout")) return;
       e.preventDefault();
       openCart();
     }, false);
@@ -506,20 +544,8 @@
       upsellBtn.disabled = true;
       upsellBtn.textContent = "✓";
       cartAdd(vid, 1, {})
-        .then(function () { render(); })
+        .then(function () { render(); syncFreebie(); })
         .catch(function () { upsellBtn.disabled = false; upsellBtn.textContent = "+"; });
-      return;
-    }
-
-    /* Freebie add */
-    var freebieBtn = e.target.closest("#ec-add-freebie");
-    if (freebieBtn) {
-      freebieBtn.disabled = true;
-      freebieBtn.textContent = "Adding…";
-      var numId = extractId(settings.freebieProductVariantId);
-      cartAdd(numId, 1, { _edge_cart_freebie: "true" })
-        .then(function () { render(); })
-        .catch(function () { freebieBtn.disabled = false; freebieBtn.textContent = "Add Free Gift"; });
       return;
     }
   }
@@ -532,6 +558,7 @@
       .then(function () {
         delete updatingKeys[key];
         render();
+        syncFreebie();
       })
       .catch(function () {
         delete updatingKeys[key];
