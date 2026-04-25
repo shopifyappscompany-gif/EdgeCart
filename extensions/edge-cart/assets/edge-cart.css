@@ -1,0 +1,654 @@
+/* ============================================================
+   EdgeCart SideCart — Storefront Styles
+   ============================================================ */
+
+:root {
+  --ec-primary: #000000;
+  --ec-banner-bg: #1a1a1a;
+  --ec-banner-text: #ffffff;
+  --ec-width: 430px;
+  --ec-z: 2147483647;
+  --ec-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ec-radius: 0px;
+  --ec-shadow: -8px 0 40px rgba(0, 0, 0, 0.18);
+}
+
+/* ----------------------------------------------------------
+   Overlay
+   ---------------------------------------------------------- */
+.ec-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.32s var(--ec-ease), visibility 0.32s var(--ec-ease);
+  z-index: calc(var(--ec-z) - 1);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.ec-overlay--visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ----------------------------------------------------------
+   Cart Drawer
+   ---------------------------------------------------------- */
+.ec-cart {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--ec-width);
+  max-width: 100vw;
+  background: #ffffff;
+  z-index: var(--ec-z);
+  transform: translateX(110%);
+  transition: transform 0.35s var(--ec-ease);
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  box-shadow: var(--ec-shadow);
+  overflow: hidden;
+}
+.ec-cart--open {
+  transform: translateX(0);
+}
+
+/* ----------------------------------------------------------
+   Inner layout
+   ---------------------------------------------------------- */
+.ec-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ----------------------------------------------------------
+   Banner
+   ---------------------------------------------------------- */
+.ec-banner {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+}
+
+/* ----------------------------------------------------------
+   Header
+   ---------------------------------------------------------- */
+.ec-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.ec-header__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #111111;
+  letter-spacing: -0.3px;
+}
+.ec-header__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #777;
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+}
+.ec-header__close:hover {
+  background: #f5f5f5;
+  color: #111;
+}
+
+/* ----------------------------------------------------------
+   Body (scrollable)
+   ---------------------------------------------------------- */
+.ec-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #e0e0e0 transparent;
+}
+.ec-body::-webkit-scrollbar { width: 4px; }
+.ec-body::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 4px; }
+
+/* ----------------------------------------------------------
+   Empty State
+   ---------------------------------------------------------- */
+.ec-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 60px 30px;
+  height: 100%;
+  min-height: 300px;
+  text-align: center;
+  color: #aaa;
+}
+.ec-empty__icon {
+  width: 72px;
+  height: 72px;
+  opacity: 0.25;
+}
+.ec-empty__text {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #555;
+}
+.ec-empty__sub {
+  margin: -8px 0 0;
+  font-size: 14px;
+  color: #999;
+}
+.ec-empty__btn {
+  padding: 11px 24px;
+  border: 1.5px solid #333;
+  border-radius: 8px;
+  background: none;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ec-empty__btn:hover {
+  background: #111;
+  color: #fff;
+}
+
+/* ----------------------------------------------------------
+   Line Items
+   ---------------------------------------------------------- */
+.ec-items { padding: 6px 0; }
+
+.ec-item {
+  display: flex;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #f5f5f5;
+  animation: ec-slide-in 0.22s ease;
+  position: relative;
+}
+@keyframes ec-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ec-item__img {
+  flex-shrink: 0;
+  width: 76px;
+  height: 76px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f5f5f5;
+  border: 1px solid #ebebeb;
+}
+.ec-item__img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ec-item__img-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e8e8e8 100%);
+}
+
+.ec-item__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ec-item__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ec-item__info { flex: 1; min-width: 0; }
+.ec-item__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ec-item__variant {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: #888;
+}
+
+.ec-item__remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #ccc;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+  margin-top: 1px;
+}
+.ec-item__remove:hover { color: #e53e3e; }
+
+.ec-item__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Quantity stepper */
+.ec-qty {
+  display: inline-flex;
+  align-items: center;
+  border: 1.5px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafafa;
+}
+.ec-qty__btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 17px;
+  color: #444;
+  transition: background 0.12s;
+  line-height: 1;
+  padding: 0;
+}
+.ec-qty__btn:hover { background: #f0f0f0; }
+.ec-qty__btn:disabled { opacity: 0.35; cursor: default; }
+.ec-qty__val {
+  min-width: 32px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+  padding: 0 4px;
+  user-select: none;
+}
+
+/* Price */
+.ec-item__price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.ec-item__orig {
+  font-size: 12px;
+  color: #bbb;
+  text-decoration: line-through;
+}
+.ec-item__line {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111;
+}
+.ec-item__line--sale { color: #e53e3e; }
+
+/* ----------------------------------------------------------
+   Footer
+   ---------------------------------------------------------- */
+.ec-footer {
+  flex-shrink: 0;
+  border-top: 1px solid #f0f0f0;
+  background: #fff;
+  max-height: 65%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ----------------------------------------------------------
+   Free Gift / Freebie
+   ---------------------------------------------------------- */
+.ec-freebie {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+/* Progress (locked) */
+.ec-freebie--locked {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+.ec-freebie__msg {
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400e;
+  margin: 0 0 10px;
+}
+.ec-freebie__bar-track {
+  height: 7px;
+  background: #fde68a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ec-freebie__bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+  border-radius: 4px;
+  transition: width 0.5s var(--ec-ease);
+}
+
+/* Available */
+.ec-freebie--available {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+.ec-freebie__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.ec-freebie__img {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.ec-freebie__info {}
+.ec-freebie__label {
+  margin: 0 0 3px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+}
+.ec-freebie__product {
+  margin: 0;
+  font-size: 13px;
+  color: #555;
+}
+.ec-freebie__add-btn {
+  width: 100%;
+  padding: 11px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  letter-spacing: 0.2px;
+}
+.ec-freebie__add-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.ec-freebie__add-btn:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+/* Added */
+.ec-freebie--added {
+  background: #f0fdf4;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+  padding: 14px 20px;
+}
+
+/* ----------------------------------------------------------
+   Upsell
+   ---------------------------------------------------------- */
+.ec-upsell {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.ec-upsell__heading {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.ec-upsell__list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.ec-upsell__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1.5px solid #efefef;
+  border-radius: 10px;
+  background: #fafafa;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ec-upsell__item:hover {
+  border-color: #ddd;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+.ec-upsell__img {
+  width: 50px;
+  height: 50px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #f0f0f0;
+}
+.ec-upsell__img-placeholder {
+  width: 50px;
+  height: 50px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #f0f0f0, #e8e8e8);
+  flex-shrink: 0;
+}
+.ec-upsell__info { flex: 1; min-width: 0; }
+.ec-upsell__name {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ec-upsell__price {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+.ec-upsell__add {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--ec-primary);
+  background: transparent;
+  color: var(--ec-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 300;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+  padding: 0;
+  line-height: 1;
+}
+.ec-upsell__add:hover {
+  background: var(--ec-primary);
+  color: #fff;
+  transform: scale(1.08);
+}
+.ec-upsell__add:disabled {
+  border-color: #22c55e;
+  color: #22c55e;
+  background: transparent;
+  transform: none;
+  cursor: default;
+}
+
+/* ----------------------------------------------------------
+   Discount Code
+   ---------------------------------------------------------- */
+.ec-discount {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.ec-discount__wrap {
+  display: flex;
+  gap: 8px;
+}
+.ec-discount__input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #111;
+  background: #fafafa;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.ec-discount__input:focus {
+  border-color: var(--ec-primary);
+  background: #fff;
+}
+.ec-discount__apply {
+  padding: 10px 16px;
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.ec-discount__apply:hover { opacity: 0.8; }
+.ec-discount__applied {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #166534;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ----------------------------------------------------------
+   Summary
+   ---------------------------------------------------------- */
+.ec-summary {
+  padding: 16px 20px 6px;
+}
+.ec-summary__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.ec-summary__label {
+  font-size: 15px;
+  color: #555;
+  font-weight: 500;
+}
+.ec-summary__price {
+  font-size: 20px;
+  font-weight: 800;
+  color: #111;
+  letter-spacing: -0.5px;
+}
+.ec-summary__note {
+  font-size: 12px;
+  color: #aaa;
+  margin: 5px 0 0;
+  text-align: right;
+}
+
+/* ----------------------------------------------------------
+   Checkout Button
+   ---------------------------------------------------------- */
+.ec-checkout-btn {
+  display: block;
+  margin: 12px 20px 24px;
+  padding: 16px 20px;
+  background: var(--ec-primary);
+  color: #ffffff !important;
+  text-align: center;
+  text-decoration: none !important;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  transition: opacity 0.15s, transform 0.12s;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.ec-checkout-btn:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+.ec-checkout-btn:active {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* ----------------------------------------------------------
+   Loading spinner on item update
+   ---------------------------------------------------------- */
+.ec-item--updating {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+/* ----------------------------------------------------------
+   Mobile
+   ---------------------------------------------------------- */
+@media (max-width: 500px) {
+  :root { --ec-width: 100vw; }
+  .ec-cart { border-radius: 0; }
+  .ec-checkout-btn { margin: 12px 16px 20px; }
+  .ec-header,
+  .ec-item,
+  .ec-discount,
+  .ec-freebie,
+  .ec-upsell,
+  .ec-summary { padding-left: 16px; padding-right: 16px; }
+}

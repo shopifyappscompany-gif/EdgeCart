@@ -1,0 +1,25 @@
+{% comment %} EdgeCart SideCart — App Embed Block {% endcomment %}
+{% if block.settings.enabled %}
+  {{ 'edge-cart.css' | asset_url | stylesheet_tag }}
+  <script>
+    window.EdgeCartProxy = "/apps/edge-cart";
+    window.EdgeCartShop  = {{ shop.permanent_domain | json }};
+  </script>
+  <script src="{{ 'edge-cart.js' | asset_url }}" defer="defer"></script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "EdgeCart SideCart",
+  "target": "body",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Enable EdgeCart Side Cart",
+      "default": true,
+      "info": "Toggle the side cart on or off for this theme. All other settings are managed in the EdgeCart app."
+    }
+  ]
+}
+{% endschema %}

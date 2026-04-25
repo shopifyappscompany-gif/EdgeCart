@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model CartSettings {
+  id    String @id @default(cuid())
+  shop  String @unique
+
+  // General
+  enabled      Boolean @default(true)
+  headerText   String  @default("Your Cart")
+  primaryColor String  @default("#000000")
+
+  // Banner
+  bannerEnabled   Boolean @default(true)
+  bannerText      String  @default("🎉 Free shipping on orders over $50!")
+  bannerBgColor   String  @default("#1a1a1a")
+  bannerTextColor String  @default("#ffffff")
+
+  // Discount
+  discountEnabled Boolean @default(true)
+
+  // Upsell
+  upsellEnabled           Boolean @default(false)
+  upsellTitle             String  @default("You might also like")
+  upsellTriggerType       String  @default("cartValue")
+  upsellMinCartValue      Float   @default(50)
+  upsellMinQuantity       Int     @default(2)
+  upsellProducts          String  @default("[]")
+  upsellTriggerProductIds String  @default("[]")
+
+  // Freebie
+  freebieEnabled           Boolean @default(false)
+  freebieTitle             String  @default("🎁 You've earned a free gift!")
+  freebieTriggerType       String  @default("cartValue")
+  freebieMinCartValue      Float   @default(100)
+  freebieMinQuantity       Int     @default(3)
+  freebieProductVariantId  String?
+  freebieProductTitle      String?
+  freebieProductImageUrl   String?
+  freebieTriggerProductIds String  @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
