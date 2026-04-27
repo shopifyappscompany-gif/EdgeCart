@@ -9,13 +9,21 @@
   var SHOP  = window.EdgeCartShop  || "";
 
   /* ── State ─────────────────────────────────────────────── */
-  var settings         = null;
-  var cart             = null;
-  var discountCode     = "";
-  var isOpen           = false;
-  var initialized      = false;
-  var updatingKeys     = {};   // line keys being updated
-  var freebieAutoSync  = false; // prevent concurrent freebie add/remove
+  var settings          = null;
+  var cart              = null;
+  var discountCode      = "";
+  var appliedDiscount   = null;
+  var discountLoading   = false;
+  var discountError     = "";
+  var orderNote         = "";
+  var freebieToastTimer = null;
+  var isOpen            = false;
+  var initialized       = false;
+  var updatingKeys      = {};
+  var freebieAutoSync   = false;
+  var freebieRetryAt    = 0;    /* timestamp: don't retry before this */
+  var ecHandlingAdd     = false;
+  var scarcityTimer     = null;
 
   /* ===========================================================
      BOOT
@@ -30,6 +38,10 @@
         buildDOM();
         attachGlobalListeners();
         initialized = true;
+        if (settings.autoDiscountEnabled && settings.autoDiscountCode) {
+          discountCode = settings.autoDiscountCode;
+          validateDiscount(settings.autoDiscountCode);
+        }
         syncFreebie();
       })
       .catch(function (err) {
@@ -52,14 +64,19 @@
   }
 
   function cartAdd(variantId, quantity, properties) {
+    ecHandlingAdd = true;
     return fetch("/cart/add.js", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
       credentials: "same-origin",
       body: JSON.stringify({ id: variantId, quantity: quantity || 1, properties: properties || {} }),
     }).then(function (r) {
+      ecHandlingAdd = false;
       if (!r.ok) return r.json().then(function (e) { throw new Error(e.description || "Add failed"); });
-      return loadCart().then(function (c) { cart = c; });
+      return loadCart().then(function (c) { cart = c; document.dispatchEvent(new CustomEvent('cart:updated')); });
+    }).catch(function (err) {
+      ecHandlingAdd = false;
+      throw err;
     });
   }
 
@@ -70,20 +87,125 @@
       credentials: "same-origin",
       body: JSON.stringify({ id: key, quantity: quantity }),
     }).then(function (r) {
-      return r.json().then(function (c) { cart = c; });
+      if (!r.ok) return r.json().then(function (e) { throw new Error(e.description || "Change failed"); });
+      return r.json().then(function (c) { cart = c; document.dispatchEvent(new CustomEvent('cart:updated')); });
     });
   }
 
-  /* ===========================================================
-     DOM — BUILD ONCE
-  =========================================================== */
+  function cartUpdateNote(note) {
+    return fetch("/cart/update.js", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ note: note }),
+    }).then(function (r) { return r.json(); });
+  }
+
+  function validateDiscount(code) {
+    if (!code) {
+      appliedDiscount = null;
+      discountError   = "";
+      discountCode    = "";
+      if (isOpen) renderFooter();
+      return Promise.resolve(null);
+    }
+    discountLoading = true;
+    discountError   = "";
+    if (isOpen) renderFooter();
+
+    return fetch(PROXY + "/api/validate-discount?code=" + encodeURIComponent(code), {
+      credentials: "same-origin",
+    })
+      .then(function (r) { return r.ok ? r.json() : { valid: false, reason: "Server error" }; })
+      .then(function (data) {
+        discountLoading = false;
+        if (data.valid) {
+          discountCode    = code;
+          appliedDiscount = data;
+          discountError   = "";
+        } else {
+          discountCode    = "";
+          appliedDiscount = null;
+          discountError   = data.reason || "Invalid discount code";
+        }
+        if (isOpen) renderFooter();
+        return data;
+      })
+      .catch(function () {
+        discountLoading = false;
+        appliedDiscount = null;
+        discountError   = "Could not validate discount";
+        if (isOpen) renderFooter();
+        return null;
+      });
+  }
+
+  function calculateDiscountAmount() {
+    if (!appliedDiscount || !cart) return 0;
+    var d = appliedDiscount;
+    if (d.type === "percentage") {
+      if (d.appliesToAll) {
+        return Math.round(cart.total_price * d.value);
+      }
+      var base = cart.items.reduce(function (sum, item) {
+        var pid = "gid://shopify/Product/" + item.product_id;
+        return (d.productIds && d.productIds.indexOf(pid) !== -1)
+          ? sum + item.line_price
+          : sum;
+      }, 0);
+      return Math.round(base * d.value);
+    }
+    if (d.type === "fixed_amount") {
+      return Math.min(d.value, cart.total_price);
+    }
+    return 0;
+  }
+
+  /* ── Drawer click delegation ───────────────────────────── */
+  function handleDrawerClick(e) {
+    var removeBtn = e.target.closest("[data-action='remove']");
+    if (removeBtn) { doCartChange(removeBtn.dataset.key, 0); return; }
+
+    var decBtn = e.target.closest("[data-action='dec']");
+    if (decBtn) {
+      var q = parseInt(decBtn.dataset.qty, 10);
+      if (decBtn.dataset.key && q >= 0) doCartChange(decBtn.dataset.key, q);
+      return;
+    }
+
+    var incBtn = e.target.closest("[data-action='inc']");
+    if (incBtn) {
+      var qi = parseInt(incBtn.dataset.qty, 10);
+      if (incBtn.dataset.key) doCartChange(incBtn.dataset.key, qi);
+      return;
+    }
+
+    var upsellBtn = e.target.closest("[data-action='upsell']");
+    if (upsellBtn) {
+      var vid = upsellBtn.dataset.variant;
+      if (!vid) return;
+      upsellBtn.disabled    = true;
+      upsellBtn.textContent = "✓";
+      cartAdd(vid, 1, {})
+        .then(function () { render(); syncFreebie(); })
+        .catch(function () { upsellBtn.disabled = false; upsellBtn.textContent = "+"; });
+      return;
+    }
+
+  }
+
+  function doCartChange(key, qty) {
+    updatingKeys[key] = true;
+    renderBody();
+    cartChange(key, qty)
+      .then(function () { delete updatingKeys[key]; render(); syncFreebie(); })
+      .catch(function () { delete updatingKeys[key]; render(); });
+  }
   function buildDOM() {
-    /* Overlay */
     var overlay = make("div", "ec-overlay");
     overlay.id  = "ec-overlay";
     on(overlay, "click", closeCart);
 
-    /* Drawer */
     var drawer = make("div", "ec-cart");
     drawer.id  = "ec-cart";
     drawer.setAttribute("role", "dialog");
@@ -92,7 +214,10 @@
 
     drawer.innerHTML = [
       '<div class="ec-inner">',
+        '<div class="ec-freebie-toast" id="ec-freebie-toast" aria-live="polite"></div>',
         '<div class="ec-banner" id="ec-banner"></div>',
+        '<div class="ec-scarcity" id="ec-scarcity" style="display:none"></div>',
+        '<div class="ec-rewards" id="ec-rewards" style="display:none"></div>',
         '<div class="ec-header">',
           '<h2 class="ec-header__title" id="ec-header-title"></h2>',
           '<button class="ec-header__close" id="ec-close" aria-label="Close cart">',
@@ -108,7 +233,7 @@
     document.body.appendChild(drawer);
 
     on(drawer, "click", handleDrawerClick);
-    on(document.getElementById("ec-close"), "click", closeCart);
+    on(id("ec-close"), "click", closeCart);
   }
 
   /* ===========================================================
@@ -116,6 +241,8 @@
   =========================================================== */
   function render() {
     renderBanner();
+    renderScarcity();
+    renderRewards();
     renderHeader();
     renderBody();
     renderFooter();
@@ -126,13 +253,128 @@
     var el = id("ec-banner");
     if (!el || !settings) return;
     if (settings.bannerEnabled && settings.bannerText) {
-      el.textContent = settings.bannerText;
-      el.style.display   = "";
+      el.textContent      = settings.bannerText;
+      el.style.display    = "";
       el.style.background = settings.bannerBgColor || "#1a1a1a";
       el.style.color      = settings.bannerTextColor || "#fff";
     } else {
       el.style.display = "none";
     }
+  }
+
+  /* ── Scarcity countdown ─────────────────────────────────── */
+  function renderScarcity() {
+    var el = id("ec-scarcity");
+    if (!el || !settings || !settings.scarcityEnabled) {
+      if (el) el.style.display = "none";
+      return;
+    }
+    el.style.display    = "";
+    el.style.background = settings.scarcityBgColor || "#e53e3e";
+    el.style.color      = settings.scarcityTextColor || "#fff";
+
+    var storageKey = "ec_timer_" + SHOP;
+    var stored     = sessionStorage.getItem(storageKey);
+    var endTime;
+
+    if (stored) {
+      endTime = parseInt(stored, 10);
+    } else {
+      endTime = Date.now() + (settings.scarcityMinutes || 15) * 60 * 1000;
+      sessionStorage.setItem(storageKey, String(endTime));
+    }
+
+    function tick() {
+      var remaining = Math.max(0, endTime - Date.now());
+      var totalSec  = Math.floor(remaining / 1000);
+      var h = Math.floor(totalSec / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
+      var timeStr = h > 0
+        ? pad(h) + ":" + pad(m) + ":" + pad(s)
+        : pad(m) + ":" + pad(s);
+
+      el.innerHTML = [
+        '<span class="ec-scarcity__text">' + esc(settings.scarcityText || "⏰ Offer ends in:") + '</span>',
+        '<span class="ec-scarcity__clock">' + (remaining > 0 ? timeStr : "EXPIRED") + '</span>',
+      ].join(" ");
+    }
+
+    tick();
+    if (scarcityTimer) clearInterval(scarcityTimer);
+    scarcityTimer = setInterval(tick, 1000);
+  }
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  /* ── Tiered rewards — single milestone progress bar ─────── */
+  function renderRewards() {
+    var el = id("ec-rewards");
+    if (!el || !settings || !settings.tieredRewardsEnabled) {
+      if (el) el.style.display = "none";
+      return;
+    }
+
+    var tiers = settings.tieredRewards || [];
+    if (!tiers.length) { el.style.display = "none"; return; }
+
+    tiers = tiers.slice().sort(function (a, b) { return a.threshold - b.threshold; });
+    el.style.display = "";
+
+    var cartValue  = cart ? (cart.total_price / 100) : 0;
+    var cartQty    = cart ? cart.item_count : 0;
+    var maxTier    = tiers[tiers.length - 1];
+    var maxVal     = maxTier.threshold;
+    var useQty     = tiers[0].thresholdType === "quantity";
+    var currentVal = useQty ? cartQty : cartValue;
+
+    /* Find the next locked tier */
+    var nextTier = null;
+    for (var i = 0; i < tiers.length; i++) {
+      if (currentVal < tiers[i].threshold) { nextTier = tiers[i]; break; }
+    }
+
+    /* Status message */
+    var statusMsg;
+    if (!nextTier) {
+      statusMsg = "🎉 All rewards unlocked!";
+    } else {
+      var rem    = nextTier.threshold - currentVal;
+      var remFmt = useQty
+        ? Math.ceil(rem) + " item" + (Math.ceil(rem) !== 1 ? "s" : "")
+        : money(Math.max(0, rem) * 100);
+      var rewardName = nextTier.unlockedLabel || nextTier.label || "next reward";
+      statusMsg = "Add " + remFmt + " more to unlock: " + rewardName;
+    }
+
+    /* Overall fill % */
+    var fillPct = maxVal > 0 ? Math.min(100, Math.round((currentVal / maxVal) * 100)) : 100;
+
+    /* Milestone dots */
+    var milestonesHTML = tiers.map(function (tier) {
+      var unlocked = currentVal >= tier.threshold;
+      var pct      = maxVal > 0 ? Math.round((tier.threshold / maxVal) * 100) : 100;
+      var threshFmt = useQty
+        ? tier.threshold + (tier.threshold === 1 ? " item" : " items")
+        : money(tier.threshold * 100);
+      var milLabel  = tier.unlockedLabel || threshFmt;
+      return [
+        '<div class="ec-rewards__milestone' + (unlocked ? " ec-rewards__milestone--done" : "") + '" style="left:' + pct + '%">',
+          '<div class="ec-rewards__dot">' + (unlocked ? "✓" : "") + '</div>',
+          '<span class="ec-rewards__mlabel">' + esc(milLabel) + '</span>',
+        '</div>',
+      ].join("");
+    }).join("");
+
+    el.innerHTML = [
+      '<div class="ec-rewards__inner">',
+        '<p class="ec-rewards__status">' + esc(statusMsg) + '</p>',
+        '<div class="ec-rewards__track">',
+          '<div class="ec-rewards__fill" style="width:' + fillPct + '%"></div>',
+          milestonesHTML,
+        '</div>',
+      '</div>',
+    ].join("");
   }
 
   function renderHeader() {
@@ -160,13 +402,24 @@
     body.innerHTML = '<div class="ec-items" id="ec-items">' + cart.items.map(renderItem).join("") + '</div>';
   }
 
+  function isFreebieItem(item) {
+    if (!settings || !settings.freebieProductVariantId) return false;
+    var numId = extractId(settings.freebieProductVariantId);
+    return String(item.variant_id) === numId ||
+      (item.properties && item.properties._edge_cart_freebie === "true");
+  }
+
   function renderItem(item) {
-    var img     = (item.featured_image && item.featured_image.url) ? item.featured_image.url : (item.image || "");
+    var freebie = isFreebieItem(item);
+    var img = (item.featured_image && item.featured_image.url)
+      ? item.featured_image.url
+      : (item.image || (freebie ? (settings.freebieProductImageUrl || "") : ""));
     var hasDisc = item.line_price < item.original_line_price;
     var isUpd   = updatingKeys[item.key];
+    var showVar = settings.showVariantTitle !== false;
 
     return [
-      '<div class="ec-item' + (isUpd ? ' ec-item--updating' : '') + '" data-key="' + esc(item.key) + '">',
+      '<div class="ec-item' + (isUpd ? " ec-item--updating" : "") + (freebie ? " ec-item--freebie" : "") + '" data-key="' + esc(item.key) + '">',
         '<div class="ec-item__img">',
           img
             ? '<img src="' + esc(img) + '" alt="' + esc(item.product_title) + '" loading="lazy">'
@@ -176,23 +429,31 @@
           '<div class="ec-item__top">',
             '<div class="ec-item__info">',
               '<p class="ec-item__title">' + esc(item.product_title) + '</p>',
-              item.variant_title && item.variant_title !== 'Default Title'
+              showVar && item.variant_title && item.variant_title !== "Default Title"
                 ? '<p class="ec-item__variant">' + esc(item.variant_title) + '</p>'
-                : '',
+                : "",
             '</div>',
-            '<button class="ec-item__remove" data-action="remove" data-key="' + esc(item.key) + '" aria-label="Remove">',
-              svgX(),
-            '</button>',
+            freebie
+              ? '<span class="ec-item__free-badge">FREE</span>'
+              : '<button class="ec-item__remove" data-action="remove" data-key="' + esc(item.key) + '" aria-label="Remove">' + svgX() + '</button>',
           '</div>',
           '<div class="ec-item__bottom">',
-            '<div class="ec-qty">',
-              '<button class="ec-qty__btn" data-action="dec" data-key="' + esc(item.key) + '" data-qty="' + (item.quantity - 1) + '" aria-label="Decrease" ' + (item.quantity <= 1 ? 'disabled' : '') + '>−</button>',
-              '<span class="ec-qty__val">' + item.quantity + '</span>',
-              '<button class="ec-qty__btn" data-action="inc" data-key="' + esc(item.key) + '" data-qty="' + (item.quantity + 1) + '" aria-label="Increase">+</button>',
-            '</div>',
+            freebie
+              ? '<span class="ec-item__gift-label">🎁 Free Gift</span>'
+              : [
+                '<div class="ec-qty">',
+                  '<button class="ec-qty__btn" data-action="dec" data-key="' + esc(item.key) + '" data-qty="' + (item.quantity - 1) + '" aria-label="Decrease"' + (item.quantity <= 1 ? " disabled" : "") + '>−</button>',
+                  '<span class="ec-qty__val">' + item.quantity + '</span>',
+                  '<button class="ec-qty__btn" data-action="inc" data-key="' + esc(item.key) + '" data-qty="' + (item.quantity + 1) + '" aria-label="Increase">+</button>',
+                '</div>',
+              ].join(""),
             '<div class="ec-item__price">',
-              hasDisc ? '<span class="ec-item__orig">' + money(item.original_line_price) + '</span>' : '',
-              '<span class="ec-item__line' + (hasDisc ? ' ec-item__line--sale' : '') + '">' + money(item.line_price) + '</span>',
+              freebie
+                ? '<span class="ec-item__line ec-item__line--free">$0.00</span>'
+                : [
+                  hasDisc ? '<span class="ec-item__orig">' + money(item.original_line_price) + '</span>' : "",
+                  '<span class="ec-item__line' + (hasDisc ? " ec-item__line--sale" : "") + '">' + money(item.line_price) + '</span>',
+                ].join(""),
             '</div>',
           '</div>',
         '</div>',
@@ -207,6 +468,9 @@
       return;
     }
 
+    var savings    = calculateDiscountAmount();
+    var subtotal   = cart.total_price;
+    var finalTotal = Math.max(0, subtotal - savings);
     var html = "";
 
     /* Freebie */
@@ -217,15 +481,39 @@
 
     /* Discount */
     if (settings.discountEnabled) {
+      var isApplied = appliedDiscount && discountCode;
       html += [
         '<div class="ec-discount">',
           '<div class="ec-discount__wrap">',
-            '<input class="ec-discount__input" id="ec-disc-input" type="text" placeholder="Discount code" value="' + esc(discountCode) + '" autocomplete="off" spellcheck="false">',
-            '<button class="ec-discount__apply" id="ec-disc-apply">Apply</button>',
+            '<input class="ec-discount__input" id="ec-disc-input" type="text" ',
+              'placeholder="Discount code" value="' + esc(discountCode) + '" ',
+              'autocomplete="off" spellcheck="false"' + (discountLoading ? ' disabled' : '') + '>',
+            '<button class="ec-discount__apply" id="ec-disc-apply"' + (discountLoading ? ' disabled' : '') + '>',
+              discountLoading ? 'Checking…' : 'Apply',
+            '</button>',
           '</div>',
-          discountCode
-            ? '<p class="ec-discount__applied">✓ "' + esc(discountCode) + '" applied at checkout</p>'
-            : '',
+          discountLoading
+            ? '<p class="ec-discount__checking">Validating code…</p>'
+            : isApplied && savings > 0
+              ? '<p class="ec-discount__applied">✓ "' + esc(discountCode) + '" — you save ' + money(savings) + '!</p>'
+              : isApplied
+                ? '<p class="ec-discount__applied">✓ "' + esc(discountCode) + '" applied at checkout</p>'
+                : discountError
+                  ? '<p class="ec-discount__error">✗ ' + esc(discountError) + '</p>'
+                  : "",
+        '</div>',
+      ].join("");
+    }
+
+    /* Order Notes */
+    if (settings.orderNotesEnabled) {
+      html += [
+        '<div class="ec-notes">',
+          '<label class="ec-notes__label" for="ec-note-input">Order Notes</label>',
+          '<textarea class="ec-notes__textarea" id="ec-note-input" rows="2" ',
+            'placeholder="Add a note to your order…">',
+            esc(orderNote),
+          '</textarea>',
         '</div>',
       ].join("");
     }
@@ -233,68 +521,160 @@
     /* Summary */
     html += [
       '<div class="ec-summary">',
-        '<div class="ec-summary__row">',
-          '<span class="ec-summary__label">Subtotal</span>',
-          '<span class="ec-summary__price">' + money(cart.total_price) + '</span>',
-        '</div>',
+        savings > 0 ? [
+          '<div class="ec-summary__row">',
+            '<span class="ec-summary__label">Subtotal</span>',
+            '<span class="ec-summary__price ec-summary__price--struck">' + money(subtotal) + '</span>',
+          '</div>',
+          '<div class="ec-summary__row ec-summary__row--savings">',
+            '<span class="ec-summary__label">Discount (' + esc(discountCode) + ')</span>',
+            '<span class="ec-summary__savings">−' + money(savings) + '</span>',
+          '</div>',
+          '<div class="ec-summary__row">',
+            '<span class="ec-summary__label ec-summary__label--total">Total</span>',
+            '<span class="ec-summary__price">' + money(finalTotal) + '</span>',
+          '</div>',
+        ].join("") : [
+          '<div class="ec-summary__row">',
+            '<span class="ec-summary__label">Subtotal</span>',
+            '<span class="ec-summary__price">' + money(subtotal) + '</span>',
+          '</div>',
+        ].join(""),
         '<p class="ec-summary__note">Taxes & shipping calculated at checkout</p>',
       '</div>',
-      '<a href="' + checkoutUrl() + '" class="ec-checkout-btn" id="ec-checkout">',
-        'Checkout · ' + money(cart.total_price),
-      '</a>',
+      '<button class="ec-checkout-btn" id="ec-checkout">',
+        'Checkout · ' + money(finalTotal),
+      '</button>',
     ].join("");
 
     footer.innerHTML = html;
 
     /* Bind discount */
-    var applyBtn = id("ec-disc-apply");
+    var applyBtn  = id("ec-disc-apply");
     var discInput = id("ec-disc-input");
     if (applyBtn && discInput) {
-      on(applyBtn, "click", function () {
-        discountCode = discInput.value.trim();
-        renderFooter();
-      });
+      on(applyBtn, "click", function () { validateDiscount(discInput.value.trim()); });
       on(discInput, "keydown", function (e) {
-        if (e.key === "Enter") { discountCode = discInput.value.trim(); renderFooter(); }
+        if (e.key === "Enter") validateDiscount(discInput.value.trim());
       });
     }
+
+    /* Bind order note */
+    var noteInput = id("ec-note-input");
+    if (noteInput) {
+      on(noteInput, "input", function () { orderNote = noteInput.value; });
+    }
+
+    /* Bind checkout */
+    var checkoutBtn = id("ec-checkout");
+    if (checkoutBtn) on(checkoutBtn, "click", handleCheckout);
+  }
+
+  function handleCheckout() {
+    var btn = id("ec-checkout");
+    if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+    function go() { window.location.href = checkoutUrl(); }
+    if (settings.orderNotesEnabled && orderNote.trim()) {
+      cartUpdateNote(orderNote.trim()).then(go).catch(go);
+    } else {
+      go();
+    }
+  }
+
+  /* ── Freebie toast popup ───────────────────────────────── */
+  function showFreebieToast() {
+    var toast = id("ec-freebie-toast");
+    if (!toast) return;
+    toast.textContent = settings.freebieTitle || "🎁 Free gift added to your cart!";
+    toast.classList.add("ec-freebie-toast--visible");
+    if (freebieToastTimer) clearTimeout(freebieToastTimer);
+    freebieToastTimer = setTimeout(function () {
+      toast.classList.remove("ec-freebie-toast--visible");
+      freebieToastTimer = null;
+    }, 3500);
+
+    if (settings.freebieConfettiEnabled !== false) {
+      launchConfetti();
+    }
+  }
+
+  /* ── Confetti ──────────────────────────────────────────── */
+  function launchConfetti() {
+    var canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483646;";
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext("2d");
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    var colors   = ["#f59e0b", "#22c55e", "#3b82f6", "#ec4899", "#8b5cf6", "#ef4444", "#06b6d4"];
+    var particles = [];
+    for (var i = 0; i < 90; i++) {
+      particles.push({
+        x:    Math.random() * canvas.width,
+        y:    -20 - Math.random() * 120,
+        w:    7 + Math.random() * 8,
+        h:    3 + Math.random() * 5,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        vx:   (Math.random() - 0.5) * 4,
+        vy:   2.5 + Math.random() * 4,
+        rot:  Math.random() * 360,
+        rotV: (Math.random() - 0.5) * 7,
+        opacity: 1,
+      });
+    }
+
+    var start    = Date.now();
+    var duration = 2800;
+
+    function frame() {
+      var elapsed = Date.now() - start;
+      if (elapsed > duration) { canvas.remove(); return; }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      var fadeStart = duration - 600;
+      particles.forEach(function (p) {
+        p.x   += p.vx;
+        p.y   += p.vy;
+        p.rot += p.rotV;
+        p.vy  += 0.09;
+        if (elapsed > fadeStart) {
+          p.opacity = Math.max(0, 1 - (elapsed - fadeStart) / 600);
+        }
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot * Math.PI / 180);
+        ctx.globalAlpha = p.opacity;
+        ctx.fillStyle   = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      });
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
   }
 
   /* ── Freebie HTML ──────────────────────────────────────── */
   function buildFreebieHTML() {
     if (!settings.freebieProductVariantId) return "";
 
-    var numId      = extractId(settings.freebieProductVariantId);
-    var inCart     = cart.items.some(function (i) { return String(i.variant_id) === numId; });
-    var unlocked   = checkFreebie();
+    var numId    = extractId(settings.freebieProductVariantId);
+    var inCart   = cart.items.some(function (i) { return String(i.variant_id) === numId; });
+    var unlocked = checkFreebie();
 
-    if (inCart) {
-      return '<div class="ec-freebie ec-freebie--added">✓ ' + esc(settings.freebieTitle || "Free gift added!") + '</div>';
-    }
+    /* In cart already — it shows as a styled green line item, nothing else needed */
+    if (inCart) return "";
 
+    /* Threshold met — auto-add silently in background; toast appears when done */
     if (unlocked) {
-      /* Auto-applying — show brief adding state */
-      return [
-        '<div class="ec-freebie ec-freebie--available">',
-          '<div class="ec-freebie__row">',
-            settings.freebieProductImageUrl
-              ? '<img class="ec-freebie__img" src="' + esc(settings.freebieProductImageUrl) + '" alt="Free gift">'
-              : '',
-            '<div class="ec-freebie__info">',
-              '<p class="ec-freebie__label">' + esc(settings.freebieTitle || "🎁 You've earned a free gift!") + '</p>',
-              settings.freebieProductTitle
-                ? '<p class="ec-freebie__product">' + esc(settings.freebieProductTitle) + '</p>'
-                : '',
-              '<p class="ec-freebie__adding">Adding to your cart…</p>',
-            '</div>',
-          '</div>',
-        '</div>',
-      ].join("");
+      if (!freebieAutoSync && Date.now() >= freebieRetryAt) {
+        syncFreebie();
+      }
+      return "";
     }
 
-    /* Progress bar */
+    /* Locked — show progress bar only */
     var prog = freebieProgress();
-    if (!prog) return "";
+    if (!prog || !prog.msg) return "";
     return [
       '<div class="ec-freebie ec-freebie--locked">',
         '<p class="ec-freebie__msg">' + esc(prog.msg) + '</p>',
@@ -311,33 +691,49 @@
     if (!settings || !settings.freebieEnabled || !settings.freebieProductVariantId) return;
     if (!cart) return;
 
-    var numId      = extractId(settings.freebieProductVariantId);
+    var numId       = extractId(settings.freebieProductVariantId);
     var freebieItem = cart.items.find(function (i) { return String(i.variant_id) === numId; });
-    var unlocked   = checkFreebie();
+    var realItems   = cart.items.filter(function (i) { return String(i.variant_id) !== numId; });
+
+    /* Empty cart with no freebie — nothing to do */
+    if (!freebieItem && realItems.length === 0) return;
+
+    var unlocked = checkFreebie();
 
     if (unlocked && !freebieItem) {
+      /* Respect cooldown period after a failed add */
+      if (Date.now() < freebieRetryAt) return;
+
       freebieAutoSync = true;
       cartAdd(numId, 1, { _edge_cart_freebie: "true" })
         .then(function () {
           freebieAutoSync = false;
+          freebieRetryAt  = 0;
+          showFreebieToast();
+          syncFreebie();
           if (isOpen) render();
           syncCartBadges();
         })
         .catch(function (err) {
           freebieAutoSync = false;
-          console.warn("[EdgeCart] Freebie auto-add failed:", err);
+          freebieRetryAt  = 0; /* retry immediately on next sync */
+          console.warn("[EdgeCart] Freebie auto-add failed:", err.message || err);
+          /* Don't re-render — no UI change needed */
         });
+
     } else if (!unlocked && freebieItem) {
       freebieAutoSync = true;
       cartChange(freebieItem.key, 0)
         .then(function () {
           freebieAutoSync = false;
+          freebieRetryAt  = 0;
+          syncFreebie();
           if (isOpen) render();
           syncCartBadges();
         })
         .catch(function (err) {
           freebieAutoSync = false;
-          console.warn("[EdgeCart] Freebie auto-remove failed:", err);
+          console.warn("[EdgeCart] Freebie auto-remove failed:", err.message || err);
         });
     }
   }
@@ -345,16 +741,14 @@
   /* ── Upsell HTML ───────────────────────────────────────── */
   function buildUpsellHTML() {
     var products = settings.upsellProducts || [];
-    if (!products.length) return "";
-    if (!checkUpsell()) return "";
+    if (!products.length || !checkUpsell()) return "";
 
-    /* Hide products already in cart */
     var cartPids = cart.items.map(function (i) { return "gid://shopify/Product/" + i.product_id; });
-    var toShow   = products.filter(function (p) { return !cartPids.includes(p.id); });
+    var toShow   = products.filter(function (p) { return cartPids.indexOf(p.id) === -1; });
     if (!toShow.length) return "";
 
     var rows = toShow.map(function (p) {
-      var v     = p.variants && p.variants[0];
+      var v   = p.variants && p.variants[0];
       if (!v) return "";
       var vid   = extractId(v.id);
       var price = v.price ? moneyVal(parseFloat(v.price) * 100) : "";
@@ -366,7 +760,7 @@
             : '<div class="ec-upsell__img-placeholder"></div>',
           '<div class="ec-upsell__info">',
             '<p class="ec-upsell__name">' + esc(p.title) + '</p>',
-            price ? '<p class="ec-upsell__price">' + price + '</p>' : '',
+            price ? '<p class="ec-upsell__price">' + price + '</p>' : "",
           '</div>',
           '<button class="ec-upsell__add" data-action="upsell" data-variant="' + esc(vid) + '" aria-label="Add ' + esc(p.title) + '">+</button>',
         '</div>',
@@ -386,50 +780,69 @@
      THRESHOLD CHECKS
   =========================================================== */
   function checkFreebie() {
-    var t = settings.freebieTriggerType;
-    if (t === "cartValue")  return (cart.total_price / 100) >= settings.freebieMinCartValue;
-    if (t === "quantity")   return cart.item_count >= settings.freebieMinQuantity;
+    if (!cart) return false;
+    var t   = settings.freebieTriggerType;
+    var fid = settings.freebieProductVariantId ? extractId(settings.freebieProductVariantId) : null;
+
+    if (t === "cartValue") {
+      var realTotal = cart.items.reduce(function (sum, i) {
+        return String(i.variant_id) === fid ? sum : sum + i.line_price;
+      }, 0);
+      return (realTotal / 100) >= settings.freebieMinCartValue;
+    }
+    if (t === "quantity") {
+      var realQty = cart.items.reduce(function (sum, i) {
+        return String(i.variant_id) === fid ? sum : sum + i.quantity;
+      }, 0);
+      return realQty >= settings.freebieMinQuantity;
+    }
     if (t === "product") {
       var ids = (settings.freebieTriggerProductIds || []).map(extractId);
-      return cart.items.some(function (i) { return ids.includes(String(i.product_id)); });
+      return cart.items.some(function (i) {
+        return String(i.variant_id) !== fid && ids.indexOf(String(i.product_id)) !== -1;
+      });
     }
     return false;
   }
 
   function freebieProgress() {
+    if (!cart) return null;
     var t = settings.freebieTriggerType;
+    var fid = settings.freebieProductVariantId ? extractId(settings.freebieProductVariantId) : null;
+
     if (t === "cartValue") {
-      var cur    = cart.total_price / 100;
+      var cur    = cart.items.reduce(function (sum, i) {
+        return String(i.variant_id) === fid ? sum : sum + i.line_price;
+      }, 0) / 100;
       var target = settings.freebieMinCartValue;
       var rem    = Math.max(0, target - cur);
       return {
         pct: Math.min(100, Math.round((cur / target) * 100)),
-        msg: rem > 0
-          ? "Spend " + moneyVal(rem * 100) + " more to unlock your free gift!"
-          : "",
+        msg: rem > 0 ? "Spend " + moneyVal(rem * 100) + " more to unlock your free gift!" : "",
       };
     }
     if (t === "quantity") {
-      var curQ    = cart.item_count;
+      var curQ    = cart.items.reduce(function (sum, i) {
+        return String(i.variant_id) === fid ? sum : sum + i.quantity;
+      }, 0);
       var targetQ = settings.freebieMinQuantity;
       var remQ    = Math.max(0, targetQ - curQ);
       return {
         pct: Math.min(100, Math.round((curQ / targetQ) * 100)),
-        msg: remQ > 0
-          ? "Add " + remQ + " more item" + (remQ !== 1 ? "s" : "") + " to unlock your free gift!"
-          : "",
+        msg: remQ > 0 ? "Add " + remQ + " more item" + (remQ !== 1 ? "s" : "") + " to unlock your free gift!" : "",
       };
     }
     return null;
   }
 
   function checkUpsell() {
+    if (!cart) return false;
     var t = settings.upsellTriggerType;
     if (t === "cartValue")  return (cart.total_price / 100) >= settings.upsellMinCartValue;
     if (t === "quantity")   return cart.item_count >= settings.upsellMinQuantity;
     if (t === "product") {
       var ids = (settings.upsellTriggerProductIds || []).map(extractId);
-      return cart.items.some(function (i) { return ids.includes(String(i.product_id)); });
+      return cart.items.some(function (i) { return ids.indexOf(String(i.product_id)) !== -1; });
     }
     return false;
   }
@@ -441,6 +854,8 @@
     if (!initialized) return;
     render();
     isOpen = true;
+    /* Re-sync freebie state whenever cart opens */
+    syncFreebie();
     var drawer  = id("ec-cart");
     var overlay = id("ec-overlay");
     if (drawer)  drawer.classList.add("ec-cart--open");
@@ -457,15 +872,56 @@
     if (drawer)  drawer.classList.remove("ec-cart--open");
     if (overlay) overlay.classList.remove("ec-overlay--visible");
     document.body.style.overflow = "";
+    if (scarcityTimer) { clearInterval(scarcityTimer); scarcityTimer = null; }
   }
 
   /* ===========================================================
      EVENT LISTENERS
   =========================================================== */
   function attachGlobalListeners() {
-    /* Intercept form-based Add to Cart */
+    /* Intercept fetch-based add-to-cart */
+    var _origFetch = window.fetch;
+    window.fetch = function (input, init) {
+      var promise = _origFetch.call(this, input, init);
+      if (!ecHandlingAdd && initialized) {
+        var url = typeof input === "string" ? input : (input && input.url) ? input.url : "";
+        if (url && url.includes("/cart/add")) {
+          promise.then(function (res) {
+            if (res && res.ok) {
+              setTimeout(function () {
+                loadCart().then(function (c) { cart = c; render(); openCart(); syncFreebie(); });
+              }, 50);
+            }
+          }).catch(function () {});
+        }
+      }
+      return promise;
+    };
+
+    /* Intercept XHR-based add-to-cart */
+    var _xhrOpen = XMLHttpRequest.prototype.open;
+    var _xhrSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function (method, url) {
+      this._ecUrl = String(url || "");
+      return _xhrOpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function () {
+      if (!ecHandlingAdd && initialized && this._ecUrl && this._ecUrl.includes("/cart/add")) {
+        var xhr = this;
+        xhr.addEventListener("load", function () {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setTimeout(function () {
+              loadCart().then(function (c) { cart = c; render(); openCart(); syncFreebie(); });
+            }, 50);
+          }
+        }, { once: true });
+      }
+      return _xhrSend.apply(this, arguments);
+    };
+
+    /* Intercept form-based add-to-cart */
     document.addEventListener("submit", function (e) {
-      var form   = e.target;
+      var form = e.target;
       if (!form || form.tagName !== "FORM") return;
       var action = form.getAttribute("action") || "";
       if (!action.includes("/cart/add")) return;
@@ -485,9 +941,8 @@
         .finally(function () { setSubmitBtnLoading(form, false); });
     }, true);
 
-    /* Intercept cart icon / /cart link clicks */
+    /* Cart icon / /cart link clicks */
     document.addEventListener("click", function (e) {
-      /* Never intercept clicks that originate inside our own drawer */
       if (e.target.closest("#ec-cart")) return;
       var link = e.target.closest(
         'a[href="/cart"], a[href^="/cart?"], [data-cart-toggle], .cart-link, .header__cart, .cart-icon-bubble'
@@ -502,71 +957,59 @@
       if (e.key === "Escape" && isOpen) closeCart();
     });
 
-    /* Listen for theme custom events (some themes fire these) */
+    /* Theme cart events */
     document.addEventListener("cart:updated", function () {
-      loadCart().then(function (c) { cart = c; if (isOpen) render(); });
+      loadCart().then(function (c) { cart = c; if (isOpen) render(); syncFreebie(); });
+    });
+    document.addEventListener("theme:cart:add", function () {
+      loadCart().then(function (c) { cart = c; render(); openCart(); syncFreebie(); });
+    });
+    document.addEventListener("cart:refresh", function () {
+      loadCart().then(function (c) { cart = c; if (isOpen) render(); syncFreebie(); });
     });
   }
 
   /* ── Drawer click delegation ───────────────────────────── */
   function handleDrawerClick(e) {
-    /* Remove item */
     var removeBtn = e.target.closest("[data-action='remove']");
-    if (removeBtn) {
-      var key = removeBtn.dataset.key;
-      if (key) doCartChange(key, 0);
-      return;
-    }
+    if (removeBtn) { doCartChange(removeBtn.dataset.key, 0); return; }
 
-    /* Decrease qty */
     var decBtn = e.target.closest("[data-action='dec']");
     if (decBtn) {
-      var k = decBtn.dataset.key;
       var q = parseInt(decBtn.dataset.qty, 10);
-      if (k && q >= 0) doCartChange(k, q);
+      if (decBtn.dataset.key && q >= 0) doCartChange(decBtn.dataset.key, q);
       return;
     }
 
-    /* Increase qty */
     var incBtn = e.target.closest("[data-action='inc']");
     if (incBtn) {
-      var ki = incBtn.dataset.key;
       var qi = parseInt(incBtn.dataset.qty, 10);
-      if (ki) doCartChange(ki, qi);
+      if (incBtn.dataset.key) doCartChange(incBtn.dataset.key, qi);
       return;
     }
 
-    /* Upsell add */
     var upsellBtn = e.target.closest("[data-action='upsell']");
     if (upsellBtn) {
       var vid = upsellBtn.dataset.variant;
       if (!vid) return;
-      upsellBtn.disabled = true;
+      upsellBtn.disabled    = true;
       upsellBtn.textContent = "✓";
       cartAdd(vid, 1, {})
         .then(function () { render(); syncFreebie(); })
         .catch(function () { upsellBtn.disabled = false; upsellBtn.textContent = "+"; });
       return;
     }
+
   }
 
-  /* ── Qty change with per-item loading state ────────────── */
   function doCartChange(key, qty) {
     updatingKeys[key] = true;
     renderBody();
     cartChange(key, qty)
-      .then(function () {
-        delete updatingKeys[key];
-        render();
-        syncFreebie();
-      })
-      .catch(function () {
-        delete updatingKeys[key];
-        render();
-      });
+      .then(function () { delete updatingKeys[key]; render(); syncFreebie(); })
+      .catch(function () { delete updatingKeys[key]; render(); });
   }
 
-  /* ── Set Add-to-cart button loading ────────────────────── */
   function setSubmitBtnLoading(form, loading) {
     var btn = form.querySelector('[type="submit"]');
     if (!btn) return;
@@ -588,9 +1031,11 @@
     style.id  = "ec-dynamic";
     style.textContent = [
       ":root{",
-        "--ec-primary:" + (settings.primaryColor || "#000") + ";",
-        "--ec-banner-bg:" + (settings.bannerBgColor || "#1a1a1a") + ";",
-        "--ec-banner-text:" + (settings.bannerTextColor || "#fff") + ";",
+        "--ec-primary:"       + (settings.primaryColor     || "#000") + ";",
+        "--ec-banner-bg:"     + (settings.bannerBgColor    || "#1a1a1a") + ";",
+        "--ec-banner-text:"   + (settings.bannerTextColor  || "#fff") + ";",
+        "--ec-scarcity-bg:"   + (settings.scarcityBgColor  || "#e53e3e") + ";",
+        "--ec-scarcity-text:" + (settings.scarcityTextColor || "#fff") + ";",
       "}",
     ].join("");
     document.head.appendChild(style);
@@ -601,7 +1046,7 @@
     document.querySelectorAll(
       "[data-cart-count], .cart-count, #CartCount, .cart-item-count, .header__cart-bubble, .cart-bubble"
     ).forEach(function (el) {
-      el.textContent = count;
+      el.textContent   = count;
       el.style.display = count > 0 ? "" : "none";
     });
   }
@@ -628,7 +1073,7 @@
   }
 
   function extractId(gid) {
-    if (!gid) return String(gid);
+    if (!gid) return "";
     var s = String(gid);
     return s.includes("/") ? s.split("/").pop() : s;
   }
@@ -636,19 +1081,12 @@
   function esc(str) {
     if (str === null || str === undefined) return "";
     return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   }
 
   function id(elId) { return document.getElementById(elId); }
-  function make(tag, cls) {
-    var el = document.createElement(tag);
-    if (cls) el.className = cls;
-    return el;
-  }
+  function make(tag, cls) { var el = document.createElement(tag); if (cls) el.className = cls; return el; }
   function on(el, evt, fn) { if (el) el.addEventListener(evt, fn); }
 
   /* ── SVG icons ─────────────────────────────────────────── */

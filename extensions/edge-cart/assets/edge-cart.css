@@ -64,6 +64,35 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
+}
+
+/* ----------------------------------------------------------
+   Freebie Toast Popup
+   ---------------------------------------------------------- */
+.ec-freebie-toast {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  padding: 13px 18px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ec-freebie-toast--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 /* ----------------------------------------------------------
@@ -323,6 +352,30 @@
   color: #111;
 }
 .ec-item__line--sale { color: #e53e3e; }
+.ec-item__line--free { color: #166534; font-size: 14px; }
+
+/* Freebie line item */
+.ec-item--freebie {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-bottom-color: #bbf7d0;
+}
+.ec-item__free-badge {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  background: #22c55e;
+  color: #fff;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ec-item__gift-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #166534;
+}
 
 /* ----------------------------------------------------------
    Footer
@@ -367,67 +420,6 @@
   transition: width 0.5s var(--ec-ease);
 }
 
-/* Available */
-.ec-freebie--available {
-  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-}
-.ec-freebie__row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-.ec-freebie__img {
-  width: 54px;
-  height: 54px;
-  border-radius: 10px;
-  object-fit: cover;
-  flex-shrink: 0;
-  border: 1px solid rgba(0,0,0,0.06);
-}
-.ec-freebie__info {}
-.ec-freebie__label {
-  margin: 0 0 3px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #166534;
-}
-.ec-freebie__product {
-  margin: 0;
-  font-size: 13px;
-  color: #555;
-}
-.ec-freebie__adding {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #888;
-  font-style: italic;
-}
-.ec-freebie__add-btn {
-  width: 100%;
-  padding: 11px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: #fff;
-  border: none;
-  border-radius: 9px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
-  letter-spacing: 0.2px;
-}
-.ec-freebie__add-btn:hover { opacity: 0.9; transform: translateY(-1px); }
-.ec-freebie__add-btn:disabled { opacity: 0.55; cursor: default; transform: none; }
-
-/* Added */
-.ec-freebie--added {
-  background: #f0fdf4;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 700;
-  color: #166534;
-  padding: 14px 20px;
-}
 
 /* ----------------------------------------------------------
    Upsell
@@ -526,6 +518,112 @@
 }
 
 /* ----------------------------------------------------------
+   Scarcity Countdown Timer
+   ---------------------------------------------------------- */
+.ec-scarcity {
+  flex-shrink: 0;
+  padding: 9px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: var(--ec-scarcity-bg, #e53e3e);
+  color: var(--ec-scarcity-text, #fff);
+}
+.ec-scarcity__text { opacity: 0.9; }
+.ec-scarcity__clock {
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+
+/* ----------------------------------------------------------
+   Tiered Rewards — single milestone progress bar
+   ---------------------------------------------------------- */
+.ec-rewards {
+  flex-shrink: 0;
+  border-bottom: 1px solid #f0f0f0;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+.ec-rewards__inner {
+  padding: 14px 20px 24px;
+}
+.ec-rewards__status {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400e;
+  text-align: center;
+  line-height: 1.4;
+}
+.ec-rewards__track {
+  position: relative;
+  height: 8px;
+  background: #fde68a;
+  border-radius: 6px;
+  overflow: visible; /* allow dots to sit on top */
+}
+.ec-rewards__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+  border-radius: 6px;
+  transition: width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 100%;
+}
+.ec-rewards__milestone {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ec-rewards__dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fef9c3;
+  border: 2.5px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 900;
+  color: #92400e;
+  position: relative;
+  z-index: 1;
+  transition: background 0.3s, border-color 0.3s;
+}
+.ec-rewards__milestone--done .ec-rewards__dot {
+  background: #22c55e;
+  border-color: #16a34a;
+  color: #fff;
+}
+.ec-rewards__mlabel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: #78350f;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
+}
+.ec-rewards__milestone--done .ec-rewards__mlabel {
+  color: #166534;
+}
+
+/* ----------------------------------------------------------
    Discount Code
    ---------------------------------------------------------- */
 .ec-discount {
@@ -566,14 +664,59 @@
   font-family: inherit;
 }
 .ec-discount__apply:hover { opacity: 0.8; }
+.ec-discount__apply:disabled { opacity: 0.6; cursor: default; }
 .ec-discount__applied {
   margin: 8px 0 0;
   font-size: 12px;
   color: #166534;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 5px;
+}
+.ec-discount__error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #c53030;
+  font-weight: 600;
+}
+.ec-discount__checking {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------
+   Order Notes
+   ---------------------------------------------------------- */
+.ec-notes {
+  padding: 12px 20px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.ec-notes__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 6px;
+}
+.ec-notes__textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111;
+  background: #fafafa;
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+  line-height: 1.5;
+}
+.ec-notes__textarea:focus {
+  border-color: var(--ec-primary);
+  background: #fff;
 }
 
 /* ----------------------------------------------------------
@@ -603,6 +746,24 @@
   color: #aaa;
   margin: 5px 0 0;
   text-align: right;
+}
+.ec-summary__price--struck {
+  font-size: 14px;
+  font-weight: 500;
+  color: #bbb;
+  text-decoration: line-through;
+}
+.ec-summary__row--savings {
+  margin-top: 4px;
+}
+.ec-summary__savings {
+  font-size: 15px;
+  font-weight: 700;
+  color: #166534;
+}
+.ec-summary__label--total {
+  font-weight: 700;
+  color: #111;
 }
 
 /* ----------------------------------------------------------
@@ -654,7 +815,9 @@
   .ec-header,
   .ec-item,
   .ec-discount,
+  .ec-notes,
   .ec-freebie,
   .ec-upsell,
+  .ec-rewards__inner,
   .ec-summary { padding-left: 16px; padding-right: 16px; }
 }

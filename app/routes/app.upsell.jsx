@@ -55,9 +55,14 @@ export default function UpsellSettings() {
   }, [fetcher.data]);
 
   async function pickUpsellProducts() {
-    const selected = await shopify.resourcePicker({ type: "product", multiple: 5, action: "select" });
-    if (selected && selected.length > 0) {
-      const mapped = selected.map((p) => ({
+    const selected = await shopify.resourcePicker({
+      type: "product",
+      multiple: true,
+      action: "select",
+      selectionIds: upsellProducts.map((p) => ({ id: p.id })),
+    });
+    if (selected) {
+      const mapped = selected.slice(0, 5).map((p) => ({
         id: p.id,
         title: p.title,
         handle: p.handle,

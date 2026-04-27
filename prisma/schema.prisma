@@ -65,6 +65,30 @@ model CartSettings {
   freebieProductImageUrl   String?
   freebieTriggerProductIds String  @default("[]")
 
+  // Auto-discount
+  autoDiscountEnabled Boolean @default(false)
+  autoDiscountCode    String  @default("")
+
+  // Order notes
+  orderNotesEnabled Boolean @default(false)
+
+  // Variant title display
+  showVariantTitle Boolean @default(true)
+
+  // Scarcity countdown timer
+  scarcityEnabled   Boolean @default(false)
+  scarcityText      String  @default("⏰ Offer ends in:")
+  scarcityMinutes   Int     @default(15)
+  scarcityBgColor   String  @default("#e53e3e")
+  scarcityTextColor String  @default("#ffffff")
+
+  // Tiered rewards
+  tieredRewardsEnabled Boolean @default(false)
+  tieredRewards        String  @default("[]")
+
+  // Freebie confetti
+  freebieConfettiEnabled Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

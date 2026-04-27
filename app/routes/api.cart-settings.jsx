@@ -10,6 +10,18 @@ const DEFAULT_SETTINGS = {
   bannerBgColor: "#1a1a1a",
   bannerTextColor: "#ffffff",
   discountEnabled: true,
+  autoDiscountEnabled: false,
+  autoDiscountCode: "",
+  orderNotesEnabled: false,
+  showVariantTitle: true,
+  scarcityEnabled: false,
+  scarcityText: "⏰ Offer ends in:",
+  scarcityMinutes: 15,
+  scarcityBgColor: "#e53e3e",
+  scarcityTextColor: "#ffffff",
+  tieredRewardsEnabled: false,
+  tieredRewards: [],
+  freebieConfettiEnabled: true,
   upsellEnabled: false,
   upsellTitle: "You might also like",
   upsellTriggerType: "cartValue",
@@ -69,6 +81,7 @@ export const loader = async ({ request }) => {
       upsellProducts: safeParseJSON(settings.upsellProducts, []),
       upsellTriggerProductIds: safeParseJSON(settings.upsellTriggerProductIds, []),
       freebieTriggerProductIds: safeParseJSON(settings.freebieTriggerProductIds, []),
+      tieredRewards: safeParseJSON(settings.tieredRewards, []),
     };
 
     return new Response(JSON.stringify(payload), {

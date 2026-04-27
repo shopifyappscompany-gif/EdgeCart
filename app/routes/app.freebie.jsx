@@ -21,16 +21,26 @@ export const action = async ({ request }) => {
     const sourceTitle = String(form.get("sourceTitle") || "Free Gift");
     const sourceImageUrl = form.get("sourceImageUrl") ? String(form.get("sourceImageUrl")) : null;
 
-    // Step 1: Create the product — also fetch inventoryItem ID for step 3
+    try {
+    // Step 0: Find the Online Store publication ID so we can publish the product to storefront
+    let onlineStorePubId = null;
+    try {
+      const pubRes = await admin.graphql(`#graphql
+        query getPublications { publications(first: 20) { nodes { id name } } }`);
+      const pubJson = await pubRes.json();
+      const pubs = pubJson.data?.publications?.nodes || [];
+      const osPub = pubs.find((p) => p.name === "Online Store") || pubs[0];
+      onlineStorePubId = osPub?.id || null;
+    } catch (_) {}
+
+    // Step 1: Create the product
     const createRes = await admin.graphql(
       `#graphql
       mutation createFreebieProduct($input: ProductCreateInput!) {
         productCreate(product: $input) {
           product {
             id
-            variants(first: 1) {
-              edges { node { id } }
-            }
+            variants(first: 1) { edges { node { id } } }
             featuredImage { url }
           }
           userErrors { field message }
@@ -49,21 +59,44 @@ export const action = async ({ request }) => {
 
     const createJson = await createRes.json();
     const createErrors = createJson.data?.productCreate?.userErrors;
-    if (createErrors?.length) {
-      return { error: createErrors[0].message };
-    }
+    if (createErrors?.length) return { error: createErrors[0].message };
 
     const product = createJson.data?.productCreate?.product;
-    const variantNode = product?.variants?.edges?.[0]?.node;
-    const variantId = variantNode?.id;
+    const variantId = product?.variants?.edges?.[0]?.node?.id;
     const productId = product?.id;
-    const imageUrl = sourceImageUrl || product?.featuredImage?.url || null;
+    let imageUrl = sourceImageUrl || null;
 
-    if (!variantId || !productId) {
-      return { error: "Failed to create product." };
+    if (!variantId || !productId) return { error: "Failed to create freebie product." };
+
+    // Step 1b: Attach source image to the new product so it shows in cart line items
+    if (sourceImageUrl) {
+      try {
+        const mediaRes = await admin.graphql(
+          `#graphql
+          mutation attachFreebieImage($productId: ID!, $media: [CreateMediaInput!]!) {
+            productCreateMedia(productId: $productId, media: $media) {
+              media {
+                ... on MediaImage {
+                  image { url }
+                }
+              }
+              mediaUserErrors { field message }
+            }
+          }`,
+          {
+            variables: {
+              productId,
+              media: [{ mediaContentType: "IMAGE", originalSource: sourceImageUrl, alt: sourceTitle + " — Free Gift" }],
+            },
+          }
+        );
+        const mediaJson = await mediaRes.json();
+        const attachedUrl = mediaJson.data?.productCreateMedia?.media?.[0]?.image?.url;
+        if (attachedUrl) imageUrl = attachedUrl;
+      } catch (_) {}
     }
 
-    // Step 2: Set the default variant price to $0.00 and allow selling when out of stock
+    // Step 2: Set variant price to $0.00 + always allow purchase (inventoryPolicy: CONTINUE)
     const updateRes = await admin.graphql(
       `#graphql
       mutation updateFreebieVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
@@ -79,11 +112,23 @@ export const action = async ({ request }) => {
         },
       }
     );
-
     const updateJson = await updateRes.json();
     const updateErrors = updateJson.data?.productVariantsBulkUpdate?.userErrors;
-    if (updateErrors?.length) {
-      return { error: updateErrors[0].message };
+    if (updateErrors?.length) return { error: updateErrors[0].message };
+
+    // Step 3: Publish to Online Store so the storefront /cart/add.js can add it
+    if (onlineStorePubId) {
+      try {
+        await admin.graphql(
+          `#graphql
+          mutation publishFreebie($id: ID!, $input: PublishablePublishInput!) {
+            publishablePublish(id: $id, input: $input) {
+              userErrors { field message }
+            }
+          }`,
+          { variables: { id: productId, input: { publicationIds: [onlineStorePubId] } } }
+        );
+      } catch (_) {}
     }
 
     await prisma.cartSettings.upsert({
@@ -99,6 +144,17 @@ export const action = async ({ request }) => {
       freebieProductTitle: sourceTitle,
       freebieProductImageUrl: imageUrl,
     };
+    } catch (err) {
+      console.error("[EdgeCart] Freebie creation error:", err);
+      const msg = String(err?.message || "");
+      if (msg.includes("access token") || msg.includes("Missing access token")) {
+        return {
+          error:
+            "Session expired — please refresh the page and try again. If the error persists, re-install the app from your Shopify Partner Dashboard.",
+        };
+      }
+      return { error: msg || "Failed to create freebie product. Please try again." };
+    }
   }
 
   // Save freebie settings
@@ -109,6 +165,7 @@ export const action = async ({ request }) => {
     freebieMinCartValue: parseFloat(form.get("freebieMinCartValue") || "100"),
     freebieMinQuantity: parseInt(form.get("freebieMinQuantity") || "3", 10),
     freebieTriggerProductIds: String(form.get("freebieTriggerProductIds") || "[]"),
+    freebieConfettiEnabled: form.get("freebieConfettiEnabled") === "true",
   };
 
   const fvId = form.get("freebieProductVariantId");
@@ -143,6 +200,7 @@ export default function FreebieSettings() {
   const [freebieVariantId, setFreebieVariantId] = useState(s.freebieProductVariantId ?? "");
   const [freebieProductTitle, setFreebieProductTitle] = useState(s.freebieProductTitle ?? "");
   const [freebieProductImage, setFreebieProductImage] = useState(s.freebieProductImageUrl ?? "");
+  const [confettiEnabled, setConfettiEnabled] = useState(s.freebieConfettiEnabled ?? true);
   const [creating, setCreating] = useState(false);
 
   /* Sync state when React Router revalidates the loader after an action */
@@ -156,6 +214,7 @@ export default function FreebieSettings() {
     setFreebieVariantId(s.freebieProductVariantId ?? "");
     setFreebieProductTitle(s.freebieProductTitle ?? "");
     setFreebieProductImage(s.freebieProductImageUrl ?? "");
+    setConfettiEnabled(s.freebieConfettiEnabled ?? true);
   }, [settings]);
 
   useEffect(() => {
@@ -178,12 +237,20 @@ export default function FreebieSettings() {
     const selected = await shopify.resourcePicker({ type: "product", multiple: false, action: "select" });
     if (!selected || !selected.length) return;
     const p = selected[0];
+    // Try every possible field name the App Bridge SDK might use for the image URL
+    const imgUrl =
+      p.featuredImage?.url ||
+      p.featuredImage?.originalSrc ||
+      p.images?.[0]?.url ||
+      p.images?.[0]?.originalSrc ||
+      p.images?.[0]?.src ||
+      "";
     setCreating(true);
     fetcher.submit(
       {
         intent: "createFreebieProduct",
         sourceTitle: p.title,
-        sourceImageUrl: p.images?.[0]?.originalSrc || p.images?.[0]?.src || "",
+        sourceImageUrl: imgUrl,
       },
       { method: "POST" }
     );
@@ -209,6 +276,7 @@ export default function FreebieSettings() {
         freebieProductVariantId: freebieVariantId,
         freebieProductTitle: freebieProductTitle,
         freebieProductImageUrl: freebieProductImage,
+        freebieConfettiEnabled: String(confettiEnabled),
       },
       { method: "POST" }
     );
@@ -241,17 +309,29 @@ export default function FreebieSettings() {
           </div>
 
           {enabled && (
-            <div>
-              <label style={labelStyle}>Gift Banner Text</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                style={inputStyle}
-                placeholder="🎁 You've earned a free gift!"
-              />
-              <p style={helpText}>Shown inside the side cart when the gift is unlocked.</p>
-            </div>
+            <>
+              <div>
+                <label style={labelStyle}>Gift Banner Text</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  style={inputStyle}
+                  placeholder="🎁 You've earned a free gift!"
+                />
+                <p style={helpText}>Shown inside the side cart when the gift is unlocked.</p>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <strong style={{ fontSize: 14 }}>Confetti Animation</strong>
+                  <p style={{ margin: "4px 0 0", fontSize: 13, color: "#666" }}>
+                    Show a confetti burst when the free gift is added to cart.
+                  </p>
+                </div>
+                <ToggleSwitch value={confettiEnabled} onChange={setConfettiEnabled} />
+              </div>
+            </>
           )}
         </s-stack>
       </s-section>
