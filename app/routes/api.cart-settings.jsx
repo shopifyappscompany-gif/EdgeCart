@@ -10,6 +10,21 @@ const DEFAULT_SETTINGS = {
   bannerBgColor: "#1a1a1a",
   bannerTextColor: "#ffffff",
   discountEnabled: true,
+  autoDiscountEnabled: false,
+  autoDiscountCode: "",
+  autoDiscountMode: "exact",
+  configuredDiscounts: [],
+  offersEnabled: false,
+  orderNotesEnabled: false,
+  showVariantTitle: true,
+  scarcityEnabled: false,
+  scarcityText: "⏰ Offer ends in:",
+  scarcityMinutes: 15,
+  scarcityBgColor: "#e53e3e",
+  scarcityTextColor: "#ffffff",
+  tieredRewardsEnabled: false,
+  tieredRewards: [],
+  freebieConfettiEnabled: true,
   upsellEnabled: false,
   upsellTitle: "You might also like",
   upsellTriggerType: "cartValue",
@@ -42,7 +57,6 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    // Verify this is a legit app proxy request from Shopify
     const { session } = await authenticate.public.appProxy(request);
     const shop = session?.shop;
 
@@ -53,9 +67,7 @@ export const loader = async ({ request }) => {
       });
     }
 
-    const settings = await prisma.cartSettings.findUnique({
-      where: { shop },
-    });
+    const settings = await prisma.cartSettings.findUnique({ where: { shop } });
 
     if (!settings) {
       return new Response(JSON.stringify(DEFAULT_SETTINGS), {
@@ -65,10 +77,13 @@ export const loader = async ({ request }) => {
     }
 
     const payload = {
+      ...DEFAULT_SETTINGS,
       ...settings,
+      configuredDiscounts: safeParseJSON(settings.configuredDiscounts, []),
       upsellProducts: safeParseJSON(settings.upsellProducts, []),
       upsellTriggerProductIds: safeParseJSON(settings.upsellTriggerProductIds, []),
       freebieTriggerProductIds: safeParseJSON(settings.freebieTriggerProductIds, []),
+      tieredRewards: safeParseJSON(settings.tieredRewards, []),
     };
 
     return new Response(JSON.stringify(payload), {
@@ -76,7 +91,6 @@ export const loader = async ({ request }) => {
       headers: corsHeaders,
     });
   } catch (err) {
-    // Fallback: return defaults so the cart still loads
     return new Response(JSON.stringify(DEFAULT_SETTINGS), {
       status: 200,
       headers: corsHeaders,

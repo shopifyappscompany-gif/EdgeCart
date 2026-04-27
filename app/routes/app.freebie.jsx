@@ -21,17 +21,14 @@ export const action = async ({ request }) => {
     const sourceTitle = String(form.get("sourceTitle") || "Free Gift");
     const sourceImageUrl = form.get("sourceImageUrl") ? String(form.get("sourceImageUrl")) : null;
 
-    // Step 1: Create the product — also fetch inventoryItem ID for step 3
+    // Step 1: Create the product
     const createRes = await admin.graphql(
       `#graphql
       mutation createFreebieProduct($input: ProductCreateInput!) {
         productCreate(product: $input) {
           product {
             id
-            variants(first: 1) {
-              edges { node { id } }
-            }
-            featuredImage { url }
+            variants(first: 1) { edges { node { id } } }
           }
           userErrors { field message }
         }
@@ -49,26 +46,48 @@ export const action = async ({ request }) => {
 
     const createJson = await createRes.json();
     const createErrors = createJson.data?.productCreate?.userErrors;
-    if (createErrors?.length) {
-      return { error: createErrors[0].message };
-    }
+    if (createErrors?.length) return { error: createErrors[0].message };
 
     const product = createJson.data?.productCreate?.product;
-    const variantNode = product?.variants?.edges?.[0]?.node;
-    const variantId = variantNode?.id;
+    const variantId = product?.variants?.edges?.[0]?.node?.id;
     const productId = product?.id;
-    const imageUrl = sourceImageUrl || product?.featuredImage?.url || null;
 
-    if (!variantId || !productId) {
-      return { error: "Failed to create product." };
+    if (!variantId || !productId) return { error: "Failed to create product." };
+
+    // Step 2: Add image from original product
+    let actualImageUrl = sourceImageUrl;
+    if (sourceImageUrl) {
+      try {
+        const mediaRes = await admin.graphql(
+          `#graphql
+          mutation createMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+            productCreateMedia(productId: $productId, media: $media) {
+              media {
+                ... on MediaImage { image { url } }
+              }
+              mediaUserErrors { code message }
+            }
+          }`,
+          {
+            variables: {
+              productId,
+              media: [{ originalSource: sourceImageUrl, mediaContentType: "IMAGE" }],
+            },
+          }
+        );
+        const mediaJson = await mediaRes.json();
+        const mediaUrl = mediaJson.data?.productCreateMedia?.media?.[0]?.image?.url;
+        if (mediaUrl) actualImageUrl = mediaUrl;
+      } catch (e) {
+        console.warn("[EdgeCart] Could not add image to freebie product:", e.message);
+      }
     }
 
-    // Step 2: Set the default variant price to $0.00 and allow selling when out of stock
+    // Step 3: Set variant to $0 and allow overselling
     const updateRes = await admin.graphql(
       `#graphql
       mutation updateFreebieVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
         productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-          productVariants { id price }
           userErrors { field message }
         }
       }`,
@@ -82,22 +101,46 @@ export const action = async ({ request }) => {
 
     const updateJson = await updateRes.json();
     const updateErrors = updateJson.data?.productVariantsBulkUpdate?.userErrors;
-    if (updateErrors?.length) {
-      return { error: updateErrors[0].message };
+    if (updateErrors?.length) return { error: updateErrors[0].message };
+
+    // Step 4: Publish to Online Store channel
+    try {
+      const pubsRes = await admin.graphql(
+        `#graphql
+        query { publications(first: 20) { edges { node { id name } } } }`
+      );
+      const pubsJson = await pubsRes.json();
+      const onlineStore = pubsJson.data?.publications?.edges?.find(
+        (e) => e.node.name === "Online Store"
+      );
+      if (onlineStore?.node?.id) {
+        await admin.graphql(
+          `#graphql
+          mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+            publishablePublish(id: $id, input: $input) {
+              userErrors { field message }
+            }
+          }`,
+          { variables: { id: productId, input: [{ publicationId: onlineStore.node.id }] } }
+        );
+      }
+    } catch (e) {
+      console.warn("[EdgeCart] Could not publish freebie product:", e.message);
     }
 
+    // Step 5: Save to DB
     await prisma.cartSettings.upsert({
       where: { shop },
-      create: { shop, freebieProductVariantId: variantId, freebieProductTitle: sourceTitle, freebieProductImageUrl: imageUrl },
-      update: { freebieProductVariantId: variantId, freebieProductTitle: sourceTitle, freebieProductImageUrl: imageUrl },
+      create: { shop, freebieProductVariantId: variantId, freebieProductTitle: sourceTitle, freebieProductImageUrl: actualImageUrl },
+      update: { freebieProductVariantId: variantId, freebieProductTitle: sourceTitle, freebieProductImageUrl: actualImageUrl },
     });
 
     return {
       success: true,
-      message: "Free gift product created and saved!",
+      message: "Free gift product created and published!",
       freebieVariantId: variantId,
       freebieProductTitle: sourceTitle,
-      freebieProductImageUrl: imageUrl,
+      freebieProductImageUrl: actualImageUrl,
     };
   }
 
@@ -183,7 +226,13 @@ export default function FreebieSettings() {
       {
         intent: "createFreebieProduct",
         sourceTitle: p.title,
-        sourceImageUrl: p.images?.[0]?.originalSrc || p.images?.[0]?.src || "",
+        sourceImageUrl:
+          p.images?.[0]?.originalSrc ||
+          p.images?.[0]?.url ||
+          p.images?.[0]?.src ||
+          p.featuredImage?.originalSrc ||
+          p.featuredImage?.url ||
+          "",
       },
       { method: "POST" }
     );

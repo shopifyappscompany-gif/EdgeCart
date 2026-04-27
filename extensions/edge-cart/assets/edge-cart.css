@@ -576,6 +576,53 @@
   gap: 5px;
 }
 
+/* Discount status messages (replaces / supplements .ec-discount__applied) */
+.ec-discount__status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+.ec-discount__status--applied { color: #166534; }
+.ec-discount__status--error   { color: #b91c1c; }
+.ec-discount__status--checking { color: #888; font-weight: 400; font-style: italic; }
+
+/* "Auto" badge shown next to auto-applied codes */
+.ec-discount__auto-tag {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Remove button (replaces Apply when a code is active) */
+.ec-discount__remove {
+  padding: 10px 14px;
+  background: #f5f5f5;
+  color: #666;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.ec-discount__remove:hover {
+  background: #fee2e2;
+  color: #e53e3e;
+  border-color: #fca5a5;
+}
+
 /* ----------------------------------------------------------
    Summary
    ---------------------------------------------------------- */
@@ -645,6 +692,288 @@
 }
 
 /* ----------------------------------------------------------
+   View Offers Panel
+   ---------------------------------------------------------- */
+.ec-offers {
+  border-bottom: 1px solid #f5f5f5;
+}
+.ec-offers__toggle {
+  width: 100%;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #333;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+.ec-offers__toggle:hover { background: #fafafa; }
+.ec-offers__toggle svg {
+  transition: transform 0.22s ease;
+  color: #999;
+  flex-shrink: 0;
+}
+.ec-offers__toggle--open svg { transform: rotate(180deg); }
+.ec-offers__panel { padding: 0 20px 12px; }
+.ec-offers__list { display: flex; flex-direction: column; gap: 8px; }
+
+.ec-offers__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1.5px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: border-color 0.15s;
+}
+.ec-offers__item:hover { border-color: #e0e0e0; }
+
+.ec-offers__info { flex: 1; min-width: 0; }
+.ec-offers__code {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #111;
+  font-family: monospace;
+  letter-spacing: 0.8px;
+}
+.ec-offers__desc {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+  font-weight: 500;
+}
+.ec-offers__ineligible {
+  display: block;
+  font-size: 11px;
+  color: #b45309;
+  margin-top: 2px;
+  font-weight: 500;
+}
+.ec-offers__apply-btn {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  background: var(--ec-primary);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.ec-offers__apply-btn:hover:not(:disabled) { opacity: 0.82; }
+.ec-offers__apply-btn:disabled { opacity: 0.45; cursor: default; }
+.ec-offers__apply-btn--active {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1.5px solid #bbf7d0;
+}
+
+/* ----------------------------------------------------------
+   Order Notes
+   ---------------------------------------------------------- */
+.ec-notes {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.ec-notes__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 7px;
+}
+.ec-notes__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #111;
+  background: #fafafa;
+  resize: vertical;
+  min-height: 64px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+.ec-notes__textarea:focus { border-color: var(--ec-primary); background: #fff; }
+
+/* ----------------------------------------------------------
+   Scarcity Countdown
+   ---------------------------------------------------------- */
+.ec-scarcity {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+.ec-scarcity__text { opacity: 0.9; }
+.ec-scarcity__clock {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+
+/* ----------------------------------------------------------
+   Tiered Rewards
+   ---------------------------------------------------------- */
+.ec-rewards {
+  flex-shrink: 0;
+  padding: 12px 20px 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.ec-rewards__status {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  margin: 0 0 12px;
+}
+.ec-rewards__track {
+  position: relative;
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  margin-bottom: 22px;
+}
+.ec-rewards__fill {
+  height: 100%;
+  background: var(--ec-primary);
+  border-radius: 4px;
+  transition: width 0.5s var(--ec-ease);
+}
+.ec-rewards__milestone {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.ec-rewards__dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ddd;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: #fff;
+  font-weight: 700;
+  transition: background 0.3s;
+  box-shadow: 0 0 0 1px #e0e0e0;
+}
+.ec-rewards__milestone--done .ec-rewards__dot {
+  background: var(--ec-primary);
+  box-shadow: 0 0 0 1px var(--ec-primary);
+}
+.ec-rewards__mlabel {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #888;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------
+   Freebie Toast
+   ---------------------------------------------------------- */
+.ec-freebie-toast {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-16px);
+  background: #111;
+  color: #fff;
+  padding: 9px 18px;
+  border-radius: 30px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 10;
+  max-width: calc(100% - 40px);
+  text-align: center;
+}
+.ec-freebie-toast--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ----------------------------------------------------------
+   Freebie item badges (in cart)
+   ---------------------------------------------------------- */
+.ec-item--freebie {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+.ec-item__free-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 3px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
+.ec-item__gift-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+}
+.ec-item__line--free { color: #166534 !important; }
+
+/* ----------------------------------------------------------
+   Summary discount rows
+   ---------------------------------------------------------- */
+.ec-summary__price--struck {
+  font-size: 15px;
+  font-weight: 500;
+  color: #bbb;
+  text-decoration: line-through;
+}
+.ec-summary__row--savings .ec-summary__label {
+  color: #166534;
+  font-weight: 600;
+}
+.ec-summary__savings {
+  font-size: 15px;
+  font-weight: 700;
+  color: #166534;
+}
+.ec-summary__label--total {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111;
+}
+
+/* ----------------------------------------------------------
    Mobile
    ---------------------------------------------------------- */
 @media (max-width: 500px) {
@@ -656,5 +985,8 @@
   .ec-discount,
   .ec-freebie,
   .ec-upsell,
+  .ec-offers,
+  .ec-notes,
   .ec-summary { padding-left: 16px; padding-right: 16px; }
+  .ec-offers__panel { padding-left: 0; padding-right: 0; }
 }

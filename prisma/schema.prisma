@@ -43,7 +43,24 @@ model CartSettings {
   bannerTextColor String  @default("#ffffff")
 
   // Discount
-  discountEnabled Boolean @default(true)
+  discountEnabled     Boolean @default(true)
+  autoDiscountEnabled Boolean @default(false)
+  autoDiscountCode    String  @default("")
+  autoDiscountMode    String  @default("exact")
+  configuredDiscounts String  @default("[]")
+  offersEnabled       Boolean @default(false)
+
+  // Misc toggles
+  orderNotesEnabled  Boolean @default(false)
+  showVariantTitle   Boolean @default(true)
+  scarcityEnabled    Boolean @default(false)
+  scarcityText       String  @default("⏰ Offer ends in:")
+  scarcityMinutes    Int     @default(15)
+  scarcityBgColor    String  @default("#e53e3e")
+  scarcityTextColor  String  @default("#ffffff")
+  tieredRewardsEnabled Boolean @default(false)
+  tieredRewards        String  @default("[]")
+  freebieConfettiEnabled Boolean @default(true)
 
   // Upsell
   upsellEnabled           Boolean @default(false)
