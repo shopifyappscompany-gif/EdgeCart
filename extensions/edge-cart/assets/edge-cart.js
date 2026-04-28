@@ -291,7 +291,7 @@
 
   function pad(n) { return String(n).padStart(2, "0"); }
 
-  /* ── Tiered rewards — single milestone progress bar ─────── */
+  /* ── Tiered rewards — milestone bar ───────────────────────── */
   function renderRewards() {
     var el = id("ec-rewards");
     if (!el || !settings || !settings.tieredRewardsEnabled) {
@@ -312,50 +312,48 @@
     var useQty     = tiers[0].thresholdType === "quantity";
     var currentVal = useQty ? cartQty : cartValue;
 
-    /* Find the next locked tier */
     var nextTier = null;
     for (var i = 0; i < tiers.length; i++) {
       if (currentVal < tiers[i].threshold) { nextTier = tiers[i]; break; }
     }
 
-    /* Status message */
-    var statusMsg;
+    var msg;
     if (!nextTier) {
-      statusMsg = "🎉 All rewards unlocked!";
+      msg = "🎉 All rewards unlocked!";
     } else {
       var rem    = nextTier.threshold - currentVal;
       var remFmt = useQty
         ? Math.ceil(rem) + " item" + (Math.ceil(rem) !== 1 ? "s" : "")
         : money(Math.max(0, rem) * 100);
       var rewardName = nextTier.unlockedLabel || nextTier.label || "next reward";
-      statusMsg = "Add " + remFmt + " more to unlock: " + rewardName;
+      msg = "Add More Worth " + remFmt + " for " + rewardName;
     }
 
-    /* Overall fill % */
     var fillPct = maxVal > 0 ? Math.min(100, Math.round((currentVal / maxVal) * 100)) : 100;
 
-    /* Milestone dots */
-    var milestonesHTML = tiers.map(function (tier) {
-      var unlocked = currentVal >= tier.threshold;
-      var pct      = maxVal > 0 ? Math.round((tier.threshold / maxVal) * 100) : 100;
+    var nodesHTML = tiers.map(function (tier) {
+      var unlocked  = currentVal >= tier.threshold;
+      var pct       = maxVal > 0 ? Math.round((tier.threshold / maxVal) * 100) : 100;
       var threshFmt = useQty
         ? tier.threshold + (tier.threshold === 1 ? " item" : " items")
         : money(tier.threshold * 100);
-      var milLabel  = tier.unlockedLabel || threshFmt;
+      var milLabel  = tier.unlockedLabel || tier.label || threshFmt;
+      var isGift    = /free|gift|product/i.test(milLabel);
       return [
-        '<div class="ec-rewards__milestone' + (unlocked ? " ec-rewards__milestone--done" : "") + '" style="left:' + pct + '%">',
-          '<div class="ec-rewards__dot">' + (unlocked ? "✓" : "") + '</div>',
-          '<span class="ec-rewards__mlabel">' + esc(milLabel) + '</span>',
+        '<div class="ec-rw__node' + (unlocked ? ' ec-rw__node--done' : '') + '" style="left:' + pct + '%">',
+          '<span class="ec-rw__price">' + esc(threshFmt) + '</span>',
+          '<div class="ec-rw__dot">' + (isGift ? svgRwGift(unlocked) : svgRwTag(unlocked)) + '</div>',
+          '<span class="ec-rw__lbl">' + esc(milLabel) + '</span>',
         '</div>',
       ].join("");
     }).join("");
 
     el.innerHTML = [
-      '<div class="ec-rewards__inner">',
-        '<p class="ec-rewards__status">' + esc(statusMsg) + '</p>',
-        '<div class="ec-rewards__track">',
-          '<div class="ec-rewards__fill" style="width:' + fillPct + '%"></div>',
-          milestonesHTML,
+      '<div class="ec-rw__inner">',
+        '<p class="ec-rw__msg">' + esc(msg) + '</p>',
+        '<div class="ec-rw__stage">',
+          '<div class="ec-rw__bar"><div class="ec-rw__fill" style="width:' + fillPct + '%"></div></div>',
+          nodesHTML,
         '</div>',
       '</div>',
     ].join("");
@@ -1109,6 +1107,14 @@
   }
   function svgCart(cls) {
     return '<svg class="' + cls + '" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="32" r="30" stroke="currentColor" stroke-width="2"/><path d="M18 24h28l-3.5 16H21.5L18 24z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M26 24v-4a6 6 0 0112 0v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  }
+  function svgRwTag(unlocked) {
+    var c = unlocked ? "#fff" : "#9ca3af";
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="7" r="1.5" fill="' + c + '"/></svg>';
+  }
+  function svgRwGift(unlocked) {
+    var c = unlocked ? "#fff" : "#9ca3af";
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><polyline points="20 12 20 22 4 22 4 12" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="2" y="7" width="20" height="5" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="22" x2="12" y2="7" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
 
   /* ===========================================================

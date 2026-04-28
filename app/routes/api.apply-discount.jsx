@@ -3,8 +3,8 @@
  *
  * Accepts the full Shopify cart + a coupon code, validates the code via
  * Shopify Admin GraphQL, calculates the exact discount server-side, and
- * returns the result — mirroring how production checkout services (GoKwik,
- * Razorpay Magic Checkout, etc.) work.
+ * returns the result using Shopify Admin GraphQL — server-side validation
+ * mirrors what Shopify's own checkout does.
  *
  * No session cookies, no iframe tricks, no client-side math.
  * The frontend uses the returned discountAmount directly for display,
