@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:dev.sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -43,7 +43,18 @@ model CartSettings {
   bannerTextColor String  @default("#ffffff")
 
   // Discount
-  discountEnabled Boolean @default(true)
+  discountEnabled     Boolean @default(true)
+  autoDiscountEnabled Boolean @default(false)
+  autoDiscountCode    String  @default("")
+  autoDiscountMode    String  @default("exact")
+  configuredDiscounts String  @default("[]")
+  offersEnabled       Boolean @default(false)
+
+  // Order notes & display
+  orderNotesEnabled      Boolean @default(false)
+  showVariantTitle       Boolean @default(true)
+  scrollableItems        Boolean @default(true)
+  showLineItemProperties Boolean @default(false)
 
   // Upsell
   upsellEnabled           Boolean @default(false)
@@ -64,16 +75,7 @@ model CartSettings {
   freebieProductTitle      String?
   freebieProductImageUrl   String?
   freebieTriggerProductIds String  @default("[]")
-
-  // Auto-discount
-  autoDiscountEnabled Boolean @default(false)
-  autoDiscountCode    String  @default("")
-
-  // Order notes
-  orderNotesEnabled Boolean @default(false)
-
-  // Variant title display
-  showVariantTitle Boolean @default(true)
+  freebieConfettiEnabled   Boolean @default(true)
 
   // Scarcity countdown timer
   scarcityEnabled   Boolean @default(false)
@@ -85,9 +87,6 @@ model CartSettings {
   // Tiered rewards
   tieredRewardsEnabled Boolean @default(false)
   tieredRewards        String  @default("[]")
-
-  // Freebie confetti
-  freebieConfettiEnabled Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -51,7 +51,8 @@ export const action = async ({ request }) => {
           input: {
             title: `${sourceTitle} — Free Gift`,
             status: "ACTIVE",
-            tags: ["edge-cart-freebie"],
+            // edge-cart-hidden lets merchants use Search & Discovery app to exclude this tag
+            tags: ["edge-cart-freebie", "edge-cart-hidden", "noindex"],
           },
         },
       }
@@ -130,6 +131,32 @@ export const action = async ({ request }) => {
         );
       } catch (_) {}
     }
+
+    // Step 4: Set seo.hidden metafield — Shopify OS 2.0 standard to noindex the product
+    // page and exclude it from Search & Discovery / Google Shopping results.
+    try {
+      await admin.graphql(
+        `#graphql
+        mutation setFreebieMetafields($metafields: [MetafieldsSetInput!]!) {
+          metafieldsSet(metafields: $metafields) {
+            userErrors { field message }
+          }
+        }`,
+        {
+          variables: {
+            metafields: [
+              {
+                ownerId: productId,
+                namespace: "seo",
+                key: "hidden",
+                value: "1",
+                type: "number_integer",
+              },
+            ],
+          },
+        }
+      );
+    } catch (_) {}
 
     await prisma.cartSettings.upsert({
       where: { shop },

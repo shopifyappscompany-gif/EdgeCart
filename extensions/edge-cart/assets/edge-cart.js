@@ -11,10 +11,11 @@
   /* ── State ─────────────────────────────────────────────── */
   var settings          = null;
   var cart              = null;
-  var discountCode      = "";
-  var appliedDiscount   = null;
-  var discountLoading   = false;
-  var discountError     = "";
+  var discountCode       = "";
+  var appliedDiscount    = null;
+  var discountLoading    = false;
+  var discountError      = "";
+  var discountInputValue = ""; /* preserves typed code while footer re-renders */
   var orderNote         = "";
   var freebieToastTimer = null;
   var isOpen            = false;
@@ -39,8 +40,7 @@
         attachGlobalListeners();
         initialized = true;
         if (settings.autoDiscountEnabled && settings.autoDiscountCode) {
-          discountCode = settings.autoDiscountCode;
-          validateDiscount(settings.autoDiscountCode);
+          applyDiscount(settings.autoDiscountCode);
         }
         syncFreebie();
       })
@@ -101,106 +101,90 @@
     }).then(function (r) { return r.json(); });
   }
 
-  function validateDiscount(code) {
-    if (!code) {
-      appliedDiscount = null;
-      discountError   = "";
-      discountCode    = "";
-      if (isOpen) renderFooter();
-      return Promise.resolve(null);
-    }
-    discountLoading = true;
-    discountError   = "";
+  /* Returns server-calculated discount in cents from the POST /api/apply-discount response. */
+  function discountSavings() {
+    if (!appliedDiscount) return 0;
+    return appliedDiscount.discountAmount || 0;
+  }
+
+  /* POST full cart + code to the server. The server validates via Admin GraphQL,
+     calculates the exact discount amount, and returns it directly — no session
+     cookie or iframe required. Checkout URL gets ?discount=CODE for actual application. */
+  async function applyDiscount(code) {
+    code = (code || "").trim();
+    if (!code) { clearDiscount(); return; }
+
+    var upperCode = code.toUpperCase();
+    if (discountCode === upperCode && appliedDiscount && !discountError) return;
+
+    discountInputValue = code;
+    discountLoading    = true;
+    discountError      = "";
     if (isOpen) renderFooter();
 
-    return fetch(PROXY + "/api/validate-discount?code=" + encodeURIComponent(code), {
-      credentials: "same-origin",
-    })
-      .then(function (r) { return r.ok ? r.json() : { valid: false, reason: "Server error" }; })
-      .then(function (data) {
-        discountLoading = false;
-        if (data.valid) {
-          discountCode    = code;
-          appliedDiscount = data;
-          discountError   = "";
-        } else {
-          discountCode    = "";
-          appliedDiscount = null;
-          discountError   = data.reason || "Invalid discount code";
-        }
-        if (isOpen) renderFooter();
-        return data;
-      })
-      .catch(function () {
-        discountLoading = false;
-        appliedDiscount = null;
-        discountError   = "Could not validate discount";
-        if (isOpen) renderFooter();
-        return null;
-      });
-  }
+    try {
+      var currentCart;
+      try { currentCart = await loadCart(); } catch (_) { currentCart = cart; }
 
-  function calculateDiscountAmount() {
-    if (!appliedDiscount || !cart) return 0;
-    var d = appliedDiscount;
-    if (d.type === "percentage") {
-      if (d.appliesToAll) {
-        return Math.round(cart.total_price * d.value);
+      var res;
+      try {
+        res = await fetch(PROXY + "/api/apply-discount", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ couponCode: code, cart: currentCart }),
+        });
+      } catch (_) {
+        throw new Error("Network error — please check your connection");
       }
-      var base = cart.items.reduce(function (sum, item) {
-        var pid = "gid://shopify/Product/" + item.product_id;
-        return (d.productIds && d.productIds.indexOf(pid) !== -1)
-          ? sum + item.line_price
-          : sum;
-      }, 0);
-      return Math.round(base * d.value);
+
+      var data;
+      try { data = res.ok ? await res.json() : null; } catch (_) { data = null; }
+      if (!data) data = { valid: false, reason: "Could not reach validation server" };
+
+      if (!data.valid) {
+        discountCode    = "";
+        appliedDiscount = null;
+        discountError   = data.reason || "Invalid discount code";
+        discountLoading = false;
+        if (isOpen) renderFooter();
+        return;
+      }
+
+      cart               = currentCart;
+      discountCode       = upperCode;
+      appliedDiscount    = data;
+      discountError      = "";
+      discountLoading    = false;
+      discountInputValue = "";
+      if (isOpen) render();
+
+    } catch (err) {
+      discountLoading    = false;
+      discountError      = err.message || "Could not apply discount. Please try again.";
+      appliedDiscount    = null;
+      discountCode       = "";
+      discountInputValue = "";
+      if (isOpen) renderFooter();
     }
-    if (d.type === "fixed_amount") {
-      return Math.min(d.value, cart.total_price);
-    }
-    return 0;
   }
 
-  /* ── Drawer click delegation ───────────────────────────── */
-  function handleDrawerClick(e) {
-    var removeBtn = e.target.closest("[data-action='remove']");
-    if (removeBtn) { doCartChange(removeBtn.dataset.key, 0); return; }
-
-    var decBtn = e.target.closest("[data-action='dec']");
-    if (decBtn) {
-      var q = parseInt(decBtn.dataset.qty, 10);
-      if (decBtn.dataset.key && q >= 0) doCartChange(decBtn.dataset.key, q);
-      return;
-    }
-
-    var incBtn = e.target.closest("[data-action='inc']");
-    if (incBtn) {
-      var qi = parseInt(incBtn.dataset.qty, 10);
-      if (incBtn.dataset.key) doCartChange(incBtn.dataset.key, qi);
-      return;
-    }
-
-    var upsellBtn = e.target.closest("[data-action='upsell']");
-    if (upsellBtn) {
-      var vid = upsellBtn.dataset.variant;
-      if (!vid) return;
-      upsellBtn.disabled    = true;
-      upsellBtn.textContent = "✓";
-      cartAdd(vid, 1, {})
-        .then(function () { render(); syncFreebie(); })
-        .catch(function () { upsellBtn.disabled = false; upsellBtn.textContent = "+"; });
-      return;
-    }
-
+  /* Remove the applied discount code from UI and state.
+     discountSavings() returns 0 when appliedDiscount is null, so the summary
+     correctly shows no savings even if a Shopify session cookie lingers.
+     The checkout URL loses ?discount=CODE, so checkout won't use the code. */
+  async function clearDiscount() {
+    discountCode       = "";
+    appliedDiscount    = null;
+    discountError      = "";
+    discountInputValue = "";
+    if (isOpen) render();
+    try {
+      cart = await loadCart();
+      if (isOpen) render();
+    } catch (_) {}
   }
 
-  function doCartChange(key, qty) {
-    updatingKeys[key] = true;
-    renderBody();
-    cartChange(key, qty)
-      .then(function () { delete updatingKeys[key]; render(); syncFreebie(); })
-      .catch(function () { delete updatingKeys[key]; render(); });
-  }
   function buildDOM() {
     var overlay = make("div", "ec-overlay");
     overlay.id  = "ec-overlay";
@@ -468,9 +452,11 @@
       return;
     }
 
-    var savings    = calculateDiscountAmount();
-    var subtotal   = cart.total_price;
-    var finalTotal = Math.max(0, subtotal - savings);
+    /* Use server-calculated amounts from the POST /api/apply-discount response.
+       appliedDiscount.originalPrice / finalPrice are in cents, already computed. */
+    var savings    = discountSavings();
+    var subtotal   = savings > 0 ? (appliedDiscount.originalPrice || cart.total_price) : cart.total_price;
+    var finalTotal = savings > 0 ? (appliedDiscount.finalPrice    || cart.total_price) : cart.total_price;
     var html = "";
 
     /* Freebie */
@@ -481,28 +467,39 @@
 
     /* Discount */
     if (settings.discountEnabled) {
-      var isApplied = appliedDiscount && discountCode;
-      html += [
-        '<div class="ec-discount">',
-          '<div class="ec-discount__wrap">',
-            '<input class="ec-discount__input" id="ec-disc-input" type="text" ',
-              'placeholder="Discount code" value="' + esc(discountCode) + '" ',
-              'autocomplete="off" spellcheck="false"' + (discountLoading ? ' disabled' : '') + '>',
-            '<button class="ec-discount__apply" id="ec-disc-apply"' + (discountLoading ? ' disabled' : '') + '>',
-              discountLoading ? 'Checking…' : 'Apply',
-            '</button>',
+      var isApplied = !!(appliedDiscount && discountCode);
+      if (isApplied) {
+        var savingsLabel = '<span class="ec-discount__saving' + (savings > 0 ? '' : ' ec-discount__saving--info') + '">' + esc(appliedDiscount.message || 'Applied at checkout') + '</span>';
+        html += [
+          '<div class="ec-discount">',
+            '<div class="ec-discount__applied-row">',
+              '<span class="ec-discount__tag">',
+                '🏷 ' + esc(discountCode),
+                '<button class="ec-discount__remove" data-action="discount-remove" aria-label="Remove discount">×</button>',
+              '</span>',
+              savingsLabel,
+            '</div>',
           '</div>',
-          discountLoading
-            ? '<p class="ec-discount__checking">Validating code…</p>'
-            : isApplied && savings > 0
-              ? '<p class="ec-discount__applied">✓ "' + esc(discountCode) + '" — you save ' + money(savings) + '!</p>'
-              : isApplied
-                ? '<p class="ec-discount__applied">✓ "' + esc(discountCode) + '" applied at checkout</p>'
-                : discountError
-                  ? '<p class="ec-discount__error">✗ ' + esc(discountError) + '</p>'
-                  : "",
-        '</div>',
-      ].join("");
+        ].join("");
+      } else {
+        html += [
+          '<div class="ec-discount">',
+            '<div class="ec-discount__wrap">',
+              '<input class="ec-discount__input" id="ec-disc-input" type="text" ',
+                'placeholder="Discount code" value="' + esc(discountInputValue) + '" ',
+                'autocomplete="off" spellcheck="false"' + (discountLoading ? ' disabled' : '') + '>',
+              '<button class="ec-discount__apply" id="ec-disc-apply"' + (discountLoading ? ' disabled' : '') + '>',
+                discountLoading ? 'Checking…' : 'Apply',
+              '</button>',
+            '</div>',
+            discountLoading
+              ? '<p class="ec-discount__checking">Validating…</p>'
+              : discountError
+                ? '<p class="ec-discount__error">✗ ' + esc(discountError) + '</p>'
+                : '',
+          '</div>',
+        ].join("");
+      }
     }
 
     /* Order Notes */
@@ -549,13 +546,15 @@
 
     footer.innerHTML = html;
 
-    /* Bind discount */
+    /* Bind discount input */
     var applyBtn  = id("ec-disc-apply");
     var discInput = id("ec-disc-input");
     if (applyBtn && discInput) {
-      on(applyBtn, "click", function () { validateDiscount(discInput.value.trim()); });
+      /* Track typed value so it survives re-renders (e.g. during loading) */
+      on(discInput, "input", function () { discountInputValue = discInput.value; });
+      on(applyBtn, "click", function () { applyDiscount(discInput.value.trim()); });
       on(discInput, "keydown", function (e) {
-        if (e.key === "Enter") validateDiscount(discInput.value.trim());
+        if (e.key === "Enter") applyDiscount(discInput.value.trim());
       });
     }
 
@@ -661,8 +660,12 @@
     var inCart   = cart.items.some(function (i) { return String(i.variant_id) === numId; });
     var unlocked = checkFreebie();
 
-    /* In cart already — it shows as a styled green line item, nothing else needed */
-    if (inCart) return "";
+    /* In cart already — it shows as a styled green line item */
+    if (inCart) {
+      /* Threshold no longer met — trigger removal on every render pass */
+      if (!unlocked && !freebieAutoSync) syncFreebie();
+      return "";
+    }
 
     /* Threshold met — auto-add silently in background; toast appears when done */
     if (unlocked) {
@@ -738,7 +741,7 @@
     }
   }
 
-  /* ── Upsell HTML ───────────────────────────────────────── */
+  /* ── Upsell HTML — horizontal scroll carousel ──────────── */
   function buildUpsellHTML() {
     var products = settings.upsellProducts || [];
     if (!products.length || !checkUpsell()) return "";
@@ -747,31 +750,31 @@
     var toShow   = products.filter(function (p) { return cartPids.indexOf(p.id) === -1; });
     if (!toShow.length) return "";
 
-    var rows = toShow.map(function (p) {
+    var cards = toShow.map(function (p) {
       var v   = p.variants && p.variants[0];
       if (!v) return "";
       var vid   = extractId(v.id);
       var price = v.price ? moneyVal(parseFloat(v.price) * 100) : "";
       var img   = p.featuredImage && p.featuredImage.url ? p.featuredImage.url : "";
       return [
-        '<div class="ec-upsell__item">',
+        '<div class="ec-upsell-card">',
           img
-            ? '<img class="ec-upsell__img" src="' + esc(img) + '" alt="' + esc(p.title) + '" loading="lazy">'
-            : '<div class="ec-upsell__img-placeholder"></div>',
-          '<div class="ec-upsell__info">',
-            '<p class="ec-upsell__name">' + esc(p.title) + '</p>',
-            price ? '<p class="ec-upsell__price">' + price + '</p>' : "",
+            ? '<img class="ec-upsell-card__img" src="' + esc(img) + '" alt="' + esc(p.title) + '" loading="lazy">'
+            : '<div class="ec-upsell-card__img-placeholder"></div>',
+          '<div class="ec-upsell-card__body">',
+            '<p class="ec-upsell-card__name">' + esc(p.title) + '</p>',
+            price ? '<p class="ec-upsell-card__price">' + price + '</p>' : "",
           '</div>',
-          '<button class="ec-upsell__add" data-action="upsell" data-variant="' + esc(vid) + '" aria-label="Add ' + esc(p.title) + '">+</button>',
+          '<button class="ec-upsell-card__add" data-action="upsell" data-variant="' + esc(vid) + '" aria-label="Add ' + esc(p.title) + '">+ Add</button>',
         '</div>',
       ].join("");
     }).join("");
 
-    if (!rows) return "";
+    if (!cards) return "";
     return [
-      '<div class="ec-upsell">',
-        '<p class="ec-upsell__heading">' + esc(settings.upsellTitle || "You might also like") + '</p>',
-        '<div class="ec-upsell__list">' + rows + '</div>',
+      '<div class="ec-upsell-wrap">',
+        '<p class="ec-upsell-wrap__heading">' + esc(settings.upsellTitle || "You might also like") + '</p>',
+        '<div class="ec-upsell-track">' + cards + '</div>',
       '</div>',
     ].join("");
   }
@@ -993,12 +996,20 @@
       var vid = upsellBtn.dataset.variant;
       if (!vid) return;
       upsellBtn.disabled    = true;
-      upsellBtn.textContent = "✓";
+      upsellBtn.textContent = "✓ Added";
+      upsellBtn.classList.add("ec-upsell-card__add--done");
       cartAdd(vid, 1, {})
         .then(function () { render(); syncFreebie(); })
-        .catch(function () { upsellBtn.disabled = false; upsellBtn.textContent = "+"; });
+        .catch(function () {
+          upsellBtn.disabled = false;
+          upsellBtn.textContent = "+ Add";
+          upsellBtn.classList.remove("ec-upsell-card__add--done");
+        });
       return;
     }
+
+    var discRemoveBtn = e.target.closest("[data-action='discount-remove']");
+    if (discRemoveBtn) { clearDiscount(); return; }
 
   }
 

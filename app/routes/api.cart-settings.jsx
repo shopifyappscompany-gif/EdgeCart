@@ -12,6 +12,9 @@ const DEFAULT_SETTINGS = {
   discountEnabled: true,
   autoDiscountEnabled: false,
   autoDiscountCode: "",
+  autoDiscountMode: "exact",
+  configuredDiscounts: [],
+  offersEnabled: false,
   orderNotesEnabled: false,
   showVariantTitle: true,
   scarcityEnabled: false,
@@ -38,6 +41,8 @@ const DEFAULT_SETTINGS = {
   freebieProductTitle: null,
   freebieProductImageUrl: null,
   freebieTriggerProductIds: [],
+  scrollableItems: true,
+  showLineItemProperties: false,
 };
 
 export const loader = async ({ request }) => {
@@ -77,7 +82,9 @@ export const loader = async ({ request }) => {
     }
 
     const payload = {
+      ...DEFAULT_SETTINGS,
       ...settings,
+      configuredDiscounts: safeParseJSON(settings.configuredDiscounts, []),
       upsellProducts: safeParseJSON(settings.upsellProducts, []),
       upsellTriggerProductIds: safeParseJSON(settings.upsellTriggerProductIds, []),
       freebieTriggerProductIds: safeParseJSON(settings.freebieTriggerProductIds, []),

@@ -33,8 +33,10 @@ export const action = async ({ request }) => {
     scarcityMinutes:      parseInt(form.get("scarcityMinutes") || "15", 10),
     scarcityBgColor:      String(form.get("scarcityBgColor") || "#e53e3e"),
     scarcityTextColor:    String(form.get("scarcityTextColor") || "#ffffff"),
-    tieredRewardsEnabled: form.get("tieredRewardsEnabled") === "true",
-    tieredRewards:        String(form.get("tieredRewards") || "[]"),
+    tieredRewardsEnabled:    form.get("tieredRewardsEnabled") === "true",
+    tieredRewards:           String(form.get("tieredRewards") || "[]"),
+    scrollableItems:         form.get("scrollableItems") === "true",
+    showLineItemProperties:  form.get("showLineItemProperties") === "true",
   };
 
   await prisma.cartSettings.upsert({
@@ -71,8 +73,10 @@ export default function GeneralSettings() {
   const [scarcityMinutes,      setScarcityMinutes]      = useState(s.scarcityMinutes ?? 15);
   const [scarcityBgColor,      setScarcityBgColor]      = useState(s.scarcityBgColor ?? "#e53e3e");
   const [scarcityTextColor,    setScarcityTextColor]    = useState(s.scarcityTextColor ?? "#ffffff");
-  const [tieredRewardsEnabled, setTieredRewardsEnabled] = useState(s.tieredRewardsEnabled ?? false);
-  const [tieredRewards,        setTieredRewards]        = useState(() => {
+  const [tieredRewardsEnabled,    setTieredRewardsEnabled]    = useState(s.tieredRewardsEnabled ?? false);
+  const [scrollableItems,         setScrollableItems]         = useState(s.scrollableItems ?? true);
+  const [showLineItemProperties,  setShowLineItemProperties]  = useState(s.showLineItemProperties ?? false);
+  const [tieredRewards,           setTieredRewards]           = useState(() => {
     try { return JSON.parse(s.tieredRewards || "[]"); } catch { return []; }
   });
 
@@ -101,8 +105,10 @@ export default function GeneralSettings() {
         scarcityMinutes:      String(scarcityMinutes),
         scarcityBgColor,
         scarcityTextColor,
-        tieredRewardsEnabled: String(tieredRewardsEnabled),
-        tieredRewards:        JSON.stringify(tieredRewards),
+        tieredRewardsEnabled:   String(tieredRewardsEnabled),
+        tieredRewards:          JSON.stringify(tieredRewards),
+        scrollableItems:        String(scrollableItems),
+        showLineItemProperties: String(showLineItemProperties),
       },
       { method: "POST" }
     );
@@ -134,7 +140,7 @@ export default function GeneralSettings() {
     scarcityEnabled, scarcityText, scarcityMinutes, scarcityBgColor, scarcityTextColor,
     tieredRewardsEnabled, tieredRewards,
     discountEnabled, autoDiscountEnabled, autoDiscountCode,
-    orderNotesEnabled, showVariantTitle,
+    orderNotesEnabled, showVariantTitle, showLineItemProperties,
   };
 
   return (
@@ -167,6 +173,18 @@ export default function GeneralSettings() {
             desc="Show size, color, etc. below the product name on each cart line item."
             checked={showVariantTitle}
             onChange={setShowVariantTitle}
+          />
+          <ToggleRow
+            label="Show Line Item Properties"
+            desc="Display custom properties (e.g. engraving, gift message) under each product in the cart."
+            checked={showLineItemProperties}
+            onChange={setShowLineItemProperties}
+          />
+          <ToggleRow
+            label="Scrollable Line Items"
+            desc="Keep items in a fixed-height scrollable area so the checkout button is always visible, even with many products."
+            checked={scrollableItems}
+            onChange={setScrollableItems}
           />
         </s-stack>
       </s-section>
@@ -376,7 +394,7 @@ function CartPreview({ settings }) {
     scarcityEnabled, scarcityText, scarcityMinutes, scarcityBgColor, scarcityTextColor,
     tieredRewardsEnabled, tieredRewards,
     discountEnabled, autoDiscountEnabled, autoDiscountCode,
-    orderNotesEnabled, showVariantTitle,
+    orderNotesEnabled, showVariantTitle, showLineItemProperties,
   } = settings;
 
   const sampleItems = [
@@ -465,6 +483,7 @@ function CartPreview({ settings }) {
                   <span style={{ fontSize: 12, color: "#e53e3e", cursor: "pointer" }}>✕</span>
                 </div>
                 {showVariantTitle && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#888" }}>{item.variant}</p>}
+                {showLineItemProperties && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#aaa" }}>Gift message: Happy Birthday!</p>}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
                   <div style={{ display: "inline-flex", alignItems: "center", border: "1px solid #e0e0e0", borderRadius: 6, overflow: "hidden", background: "#fafafa" }}>
                     <span style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#444" }}>−</span>
