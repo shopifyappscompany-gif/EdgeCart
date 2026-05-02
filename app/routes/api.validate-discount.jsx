@@ -129,6 +129,17 @@ export const loader = async ({ request }) => {
     );
 
     const gqlJson = await result.json();
+
+    // Surface GraphQL-level errors (e.g. missing read_discounts scope → "Access denied")
+    if (gqlJson.errors?.length) {
+      const firstMsg = gqlJson.errors[0]?.message || "";
+      console.warn("[EdgeCart] GraphQL error on discount lookup:", firstMsg);
+      if (/access denied|forbidden|read_discounts/i.test(firstMsg)) {
+        return respond({ valid: false, reason: "Discount validation unavailable — please contact support" });
+      }
+      return respond({ valid: false, reason: "Could not validate discount code. Please try again." });
+    }
+
     const node = gqlJson.data?.codeDiscountNodeByCode;
 
     if (!node) {
@@ -258,9 +269,9 @@ export const loader = async ({ request }) => {
       appliesOncePerCustomer: d.appliesOncePerCustomer ?? false,
     });
   } catch (err) {
-    const msg = String(err?.message || "");
-    if (msg.includes("read_discounts")) {
-      console.warn("[EdgeCart] Missing read_discounts scope — discount validation disabled");
+    const msg = String(err?.message || err?.toString() || "");
+    if (/read_discounts|access denied|forbidden/i.test(msg)) {
+      console.warn("[EdgeCart] Scope/auth error on discount validation:", msg);
       return respond({ valid: false, reason: "Discount validation unavailable — please contact support" });
     }
     console.error("[EdgeCart] Discount validation error:", err);

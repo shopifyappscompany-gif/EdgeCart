@@ -15,8 +15,12 @@
   var appliedDiscount    = null;
   var discountLoading    = false;
   var discountError      = "";
+  var discountSuccess    = false;
   var discountInputValue = ""; /* preserves typed code while footer re-renders */
   var orderNote         = "";
+  var aiRecommendations       = [];
+  var aiRecommendationsFetching = false;
+  var aiSeedProductId         = null; /* cache key — refetch when seed changes */
   var freebieToastTimer = null;
   var isOpen            = false;
   var initialized       = false;
@@ -36,6 +40,7 @@
         cart     = results[1];
         if (!settings || !settings.enabled) return;
         injectDynamicCSS();
+        injectCustomCode();
         buildDOM();
         attachGlobalListeners();
         initialized = true;
@@ -101,15 +106,39 @@
     }).then(function (r) { return r.json(); });
   }
 
-  /* Returns server-calculated discount in cents from the POST /api/apply-discount response. */
+  /* Returns Shopify's own discount total from /cart.js — never calculated manually. */
   function discountSavings() {
-    if (!appliedDiscount) return 0;
-    return appliedDiscount.discountAmount || 0;
+    if (!cart || !appliedDiscount) return 0;
+    return cart.total_discount || 0;
   }
 
-  /* POST full cart + code to the server. The server validates via Admin GraphQL,
-     calculates the exact discount amount, and returns it directly — no session
-     cookie or iframe required. Checkout URL gets ?discount=CODE for actual application. */
+  /* Applies /discount/CODE in a hidden iframe — a real page navigation that makes
+     Shopify set its session cookie. /cart.js then returns the correct post-discount
+     total_price, original_total_price, and total_discount automatically. */
+  function applyDiscountSession(code) {
+    return new Promise(function (resolve) {
+      var done = false, timer = null;
+      function finish() {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+        setTimeout(resolve, 120); /* brief pause for cookie commit */
+      }
+      var frame = document.createElement("iframe");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none;";
+      frame.onload  = finish;
+      frame.onerror = finish;
+      timer = setTimeout(finish, 5000);
+      document.body.appendChild(frame);
+      frame.src = "/discount/" + encodeURIComponent(code);
+    });
+  }
+
+  /* Step 1 — validate via Shopify Admin GraphQL to surface exact error messages.
+     Step 2 — apply via /discount/CODE so Shopify's session cookie is set.
+     Step 3 — reload /cart.js; Shopify returns all discount numbers, nothing is calculated here. */
   async function applyDiscount(code) {
     code = (code || "").trim();
     if (!code) { clearDiscount(); return; }
@@ -123,17 +152,12 @@
     if (isOpen) renderFooter();
 
     try {
-      var currentCart;
-      try { currentCart = await loadCart(); } catch (_) { currentCart = cart; }
-
       var res;
       try {
-        res = await fetch(PROXY + "/api/apply-discount", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ couponCode: code, cart: currentCart }),
-        });
+        res = await fetch(
+          PROXY + "/api/validate-discount?code=" + encodeURIComponent(code),
+          { credentials: "same-origin" }
+        );
       } catch (_) {
         throw new Error("Network error — please check your connection");
       }
@@ -151,13 +175,20 @@
         return;
       }
 
-      cart               = currentCart;
+      /* Let Shopify apply and calculate everything */
+      await applyDiscountSession(upperCode);
+      cart               = await loadCart();
       discountCode       = upperCode;
       appliedDiscount    = data;
       discountError      = "";
       discountLoading    = false;
       discountInputValue = "";
+      discountSuccess    = true;
       if (isOpen) render();
+      setTimeout(function () {
+        discountSuccess = false;
+        if (isOpen) renderFooter();
+      }, 3000);
 
     } catch (err) {
       discountLoading    = false;
@@ -177,6 +208,7 @@
     discountCode       = "";
     appliedDiscount    = null;
     discountError      = "";
+    discountSuccess    = false;
     discountInputValue = "";
     if (isOpen) render();
     try {
@@ -450,24 +482,32 @@
       return;
     }
 
-    /* Use server-calculated amounts from the POST /api/apply-discount response.
-       appliedDiscount.originalPrice / finalPrice are in cents, already computed. */
+    /* Use Shopify's own numbers from /cart.js — nothing is calculated here.
+       total_price is post-discount; original_total_price is pre-discount. */
     var savings    = discountSavings();
-    var subtotal   = savings > 0 ? (appliedDiscount.originalPrice || cart.total_price) : cart.total_price;
-    var finalTotal = savings > 0 ? (appliedDiscount.finalPrice    || cart.total_price) : cart.total_price;
+    var subtotal   = savings > 0 ? cart.original_total_price : cart.total_price;
+    var finalTotal = cart.total_price;
     var html = "";
 
     /* Freebie */
     if (settings.freebieEnabled) html += buildFreebieHTML();
 
-    /* Upsell */
+    /* Static upsell */
     if (settings.upsellEnabled) html += buildUpsellHTML();
+
+    /* AI upsell (Shopify Recommendations API) */
+    if (settings.aiUpsellEnabled) html += buildAiUpsellHTML();
 
     /* Discount */
     if (settings.discountEnabled) {
       var isApplied = !!(appliedDiscount && discountCode);
       if (isApplied) {
-        var savingsLabel = '<span class="ec-discount__saving' + (savings > 0 ? '' : ' ec-discount__saving--info') + '">' + esc(appliedDiscount.message || 'Applied at checkout') + '</span>';
+        var labelText = savings > 0
+          ? "You save " + money(savings) + "!"
+          : appliedDiscount.type === "free_shipping" ? "Free shipping applied!"
+          : appliedDiscount.type === "bxgy" ? (appliedDiscount.description || "Buy X Get Y applied!")
+          : "Applied at checkout";
+        var savingsLabel = '<span class="ec-discount__saving' + (savings > 0 ? '' : ' ec-discount__saving--info') + '">' + esc(labelText) + '</span>';
         html += [
           '<div class="ec-discount">',
             '<div class="ec-discount__applied-row">',
@@ -477,23 +517,27 @@
               '</span>',
               savingsLabel,
             '</div>',
+            discountSuccess ? '<p class="ec-discount__success" aria-live="polite">✓ Discount applied!</p>' : '',
           '</div>',
         ].join("");
       } else {
         html += [
           '<div class="ec-discount">',
+            '<label class="ec-discount__label" for="ec-disc-input">Discount code or gift card</label>',
             '<div class="ec-discount__wrap">',
               '<input class="ec-discount__input" id="ec-disc-input" type="text" ',
-                'placeholder="Discount code" value="' + esc(discountInputValue) + '" ',
-                'autocomplete="off" spellcheck="false"' + (discountLoading ? ' disabled' : '') + '>',
-              '<button class="ec-discount__apply" id="ec-disc-apply"' + (discountLoading ? ' disabled' : '') + '>',
-                discountLoading ? 'Checking…' : 'Apply',
+                'placeholder="Enter code" ',
+                'value="' + esc(discountInputValue) + '" ',
+                'autocomplete="off" spellcheck="false" ',
+                'aria-label="Discount code or gift card"' + (discountLoading ? ' disabled' : '') + '>',
+              '<button class="ec-discount__apply" id="ec-disc-apply"' + (discountLoading || !discountInputValue.trim() ? ' disabled' : '') + '>',
+                discountLoading ? 'Applying…' : 'Apply',
               '</button>',
             '</div>',
             discountLoading
-              ? '<p class="ec-discount__checking">Validating…</p>'
+              ? '<p class="ec-discount__msg" aria-live="polite">Checking discount…</p>'
               : discountError
-                ? '<p class="ec-discount__error">✗ ' + esc(discountError) + '</p>'
+                ? '<p class="ec-discount__error" role="alert" aria-live="assertive">✗ ' + esc(discountError) + '</p>'
                 : '',
           '</div>',
         ].join("");
@@ -549,7 +593,10 @@
     var discInput = id("ec-disc-input");
     if (applyBtn && discInput) {
       /* Track typed value so it survives re-renders (e.g. during loading) */
-      on(discInput, "input", function () { discountInputValue = discInput.value; });
+      on(discInput, "input", function () {
+        discountInputValue = discInput.value;
+        if (applyBtn) applyBtn.disabled = !discInput.value.trim();
+      });
       on(applyBtn, "click", function () { applyDiscount(discInput.value.trim()); });
       on(discInput, "keydown", function (e) {
         if (e.key === "Enter") applyDiscount(discInput.value.trim());
@@ -777,6 +824,86 @@
     ].join("");
   }
 
+  /* ── AI Upsell — Shopify Recommendations API ────────────── */
+  async function fetchAiRecommendations() {
+    if (!settings || !settings.aiUpsellEnabled) { aiRecommendations = []; return; }
+    if (!cart || !cart.items.length)             { aiRecommendations = []; return; }
+    if (aiRecommendationsFetching) return;
+
+    /* Seed: non-freebie item with highest line price */
+    var freebieId = settings.freebieProductVariantId ? extractId(settings.freebieProductVariantId) : null;
+    var seed = null;
+    cart.items.forEach(function (item) {
+      if (freebieId && String(item.variant_id) === freebieId) return;
+      if (!seed || item.line_price > seed.line_price) seed = item;
+    });
+    if (!seed) { aiRecommendations = []; return; }
+
+    /* Cache hit — same seed product, skip refetch */
+    if (aiSeedProductId === seed.product_id && aiRecommendations.length) return;
+
+    aiRecommendationsFetching = true;
+    try {
+      var limit  = Math.min(Math.max(parseInt(settings.aiUpsellLimit) || 4, 2), 8);
+      var intent = settings.aiUpsellIntent === "complementary" ? "complementary" : "related";
+      var url    = "/recommendations/products.json?product_id=" + seed.product_id +
+                   "&limit=" + limit + "&intent=" + intent;
+      var res    = await fetch(url, { credentials: "same-origin" });
+      if (!res.ok) { aiRecommendations = []; return; }
+      var data   = await res.json();
+      var cartPids = cart.items.map(function (i) { return i.product_id; });
+      aiRecommendations = (data.products || []).filter(function (p) {
+        return cartPids.indexOf(p.id) === -1;
+      });
+      aiSeedProductId = seed.product_id;
+    } catch (_) {
+      aiRecommendations = [];
+    } finally {
+      aiRecommendationsFetching = false;
+    }
+    if (isOpen) renderFooter();
+  }
+
+  function buildAiUpsellHTML() {
+    if (!settings.aiUpsellEnabled || !aiRecommendations.length) return "";
+
+    var cartPids = cart.items.map(function (i) { return i.product_id; });
+    var limit    = Math.min(Math.max(parseInt(settings.aiUpsellLimit) || 4, 2), 8);
+    var toShow   = aiRecommendations.filter(function (p) { return cartPids.indexOf(p.id) === -1; }).slice(0, limit);
+    if (!toShow.length) return "";
+
+    var cards = toShow.map(function (p) {
+      var v = p.variants && p.variants[0];
+      if (!v) return "";
+      /* Recommendations API returns featured_image as a string URL */
+      var img   = (typeof p.featured_image === "string" ? p.featured_image : "")
+               || (p.images && p.images[0] && p.images[0].src) || "";
+      var price = v.price ? moneyVal(parseFloat(v.price) * 100) : "";
+      return [
+        '<div class="ec-upsell-card">',
+          img
+            ? '<img class="ec-upsell-card__img" src="' + esc(img) + '" alt="' + esc(p.title) + '" loading="lazy">'
+            : '<div class="ec-upsell-card__img-placeholder"></div>',
+          '<div class="ec-upsell-card__body">',
+            '<p class="ec-upsell-card__name">' + esc(p.title) + '</p>',
+            price ? '<p class="ec-upsell-card__price">' + price + '</p>' : "",
+          '</div>',
+          '<button class="ec-upsell-card__add" data-action="upsell" data-variant="' + esc(String(v.id)) + '" aria-label="Add ' + esc(p.title) + '">+ Add</button>',
+        '</div>',
+      ].join("");
+    }).join("");
+
+    if (!cards) return "";
+    return [
+      '<div class="ec-upsell-wrap ec-upsell-wrap--ai">',
+        '<p class="ec-upsell-wrap__heading">',
+          '<span class="ec-upsell-wrap__ai-badge">&#10022; AI</span> ' + esc(settings.aiUpsellTitle || "Customers Also Bought"),
+        '</p>',
+        '<div class="ec-upsell-track">' + cards + '</div>',
+      '</div>',
+    ].join("");
+  }
+
   /* ===========================================================
      THRESHOLD CHECKS
   =========================================================== */
@@ -864,6 +991,8 @@
     document.body.style.overflow = "hidden";
     var closeBtn = id("ec-close");
     if (closeBtn) setTimeout(function () { closeBtn.focus(); }, 50);
+    /* Kick off AI recommendations fetch (async, re-renders footer when ready) */
+    fetchAiRecommendations();
   }
 
   function closeCart() {
@@ -1015,7 +1144,13 @@
     updatingKeys[key] = true;
     renderBody();
     cartChange(key, qty)
-      .then(function () { delete updatingKeys[key]; render(); syncFreebie(); })
+      .then(function () {
+        delete updatingKeys[key];
+        aiSeedProductId = null; /* invalidate AI cache — cart composition changed */
+        render();
+        syncFreebie();
+        fetchAiRecommendations();
+      })
       .catch(function () { delete updatingKeys[key]; render(); });
   }
 
@@ -1035,6 +1170,24 @@
   /* ===========================================================
      HELPERS
   =========================================================== */
+  function injectCustomCode() {
+    if (settings.customCss) {
+      var style = document.createElement("style");
+      style.id = "ec-custom-css";
+      style.textContent = settings.customCss;
+      document.head.appendChild(style);
+    }
+    if (settings.customJs) {
+      try {
+        /* Run merchant JS in global scope, isolated from our IIFE */
+        // eslint-disable-next-line no-new-func
+        (new Function(settings.customJs))();
+      } catch (e) {
+        console.warn("[EdgeCart] Custom JS error:", e);
+      }
+    }
+  }
+
   function injectDynamicCSS() {
     var style = document.createElement("style");
     style.id  = "ec-dynamic";

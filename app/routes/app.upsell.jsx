@@ -24,6 +24,10 @@ export const action = async ({ request }) => {
     upsellMinQuantity: parseInt(form.get("upsellMinQuantity") || "2", 10),
     upsellProducts: String(form.get("upsellProducts") || "[]"),
     upsellTriggerProductIds: String(form.get("upsellTriggerProductIds") || "[]"),
+    aiUpsellEnabled: form.get("aiUpsellEnabled") === "true",
+    aiUpsellTitle: String(form.get("aiUpsellTitle") || "Customers Also Bought"),
+    aiUpsellIntent: String(form.get("aiUpsellIntent") || "related"),
+    aiUpsellLimit: parseInt(form.get("aiUpsellLimit") || "4", 10),
   };
 
   await prisma.cartSettings.upsert({
@@ -49,6 +53,10 @@ export default function UpsellSettings() {
   const [minQty, setMinQty] = useState(s.upsellMinQuantity ?? 2);
   const [upsellProducts, setUpsellProducts] = useState(() => safeJSON(s.upsellProducts, []));
   const [triggerProducts, setTriggerProducts] = useState(() => safeJSON(s.upsellTriggerProductIds, []));
+  const [aiEnabled, setAiEnabled] = useState(s.aiUpsellEnabled ?? false);
+  const [aiTitle, setAiTitle] = useState(s.aiUpsellTitle ?? "Customers Also Bought");
+  const [aiIntent, setAiIntent] = useState(s.aiUpsellIntent ?? "related");
+  const [aiLimit, setAiLimit] = useState(s.aiUpsellLimit ?? 4);
 
   useEffect(() => {
     if (fetcher.data?.success) shopify.toast.show("Upsell settings saved!");
@@ -96,6 +104,10 @@ export default function UpsellSettings() {
         upsellMinQuantity: String(minQty),
         upsellProducts: JSON.stringify(upsellProducts),
         upsellTriggerProductIds: JSON.stringify(triggerProducts),
+        aiUpsellEnabled: String(aiEnabled),
+        aiUpsellTitle: aiTitle,
+        aiUpsellIntent: aiIntent,
+        aiUpsellLimit: String(aiLimit),
       },
       { method: "POST" }
     );
@@ -230,16 +242,80 @@ export default function UpsellSettings() {
         </s-section>
       )}
 
+      {/* ── AI-Powered Upsell ── */}
+      <s-section heading="✦ AI-Powered Upsell (Shopify Recommendations)">
+        <s-stack direction="block" gap="base">
+          <div style={{ padding: "12px 14px", background: "linear-gradient(135deg,#f5f3ff,#eff6ff)", borderRadius: 10, border: "1px solid #ddd6fe" }}>
+            <p style={{ margin: 0, fontSize: 13, color: "#5b21b6", fontWeight: 600 }}>Powered by Shopify's native recommendation engine</p>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>
+              Automatically suggests products based on purchase history, browsing behaviour, and store trends — no manual selection needed.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <strong style={{ fontSize: 14 }}>Enable AI Upsell</strong>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#666" }}>
+                Shows below the static upsell section (or standalone if static is off).
+              </p>
+            </div>
+            <ToggleSwitch value={aiEnabled} onChange={setAiEnabled} />
+          </div>
+
+          {aiEnabled && (
+            <>
+              <div>
+                <label style={labelStyle}>Section Title</label>
+                <input
+                  type="text"
+                  value={aiTitle}
+                  onChange={e => setAiTitle(e.target.value)}
+                  style={inputStyle}
+                  placeholder="Customers Also Bought"
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Recommendation Type</label>
+                <select value={aiIntent} onChange={e => setAiIntent(e.target.value)} style={selectStyle}>
+                  <option value="related">Related Products — similar items, frequently bought together</option>
+                  <option value="complementary">Complementary Products — add-ons that pair well</option>
+                </select>
+                <p style={helpText}>
+                  "Complementary" requires setting up product complementary in Shopify Admin → Search &amp; Discovery app.
+                </p>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Number of Products to Show</label>
+                <input
+                  type="number"
+                  min="2"
+                  max="8"
+                  value={aiLimit}
+                  onChange={e => setAiLimit(parseInt(e.target.value, 10) || 4)}
+                  style={{ ...inputStyle, width: 100 }}
+                />
+                <p style={helpText}>Between 2 and 8. Products already in the cart are automatically excluded.</p>
+              </div>
+            </>
+          )}
+        </s-stack>
+      </s-section>
+
       <s-section slot="aside" heading="How Upsell Works">
         <s-stack direction="block" gap="base">
           <s-paragraph>
-            When the trigger condition is met, a "You might also like" section appears at the bottom of the side cart.
+            <s-text fontWeight="bold">Static Upsell:</s-text> You hand-pick up to 5 products. Shows when trigger condition is met.
           </s-paragraph>
           <s-paragraph>
-            Customers can add upsell items with one tap. Products already in the cart are automatically hidden.
+            <s-text fontWeight="bold">AI Upsell:</s-text> Shopify automatically picks products using purchase history and store trends. No manual selection needed.
           </s-paragraph>
           <s-paragraph>
-            <s-text fontWeight="bold">Tip:</s-text> Use complementary or frequently-bought-together products for best results.
+            Both can run at the same time — static upsell appears first, AI upsell below it.
+          </s-paragraph>
+          <s-paragraph>
+            <s-text fontWeight="bold">Tip:</s-text> Enable AI upsell as a fallback when the static list has no eligible products.
           </s-paragraph>
         </s-stack>
       </s-section>

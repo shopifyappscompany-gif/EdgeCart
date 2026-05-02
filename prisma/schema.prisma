@@ -88,6 +88,16 @@ model CartSettings {
   tieredRewardsEnabled Boolean @default(false)
   tieredRewards        String  @default("[]")
 
+  // AI-powered upsell (Shopify Recommendations API)
+  aiUpsellEnabled Boolean @default(false)
+  aiUpsellTitle   String  @default("Customers Also Bought")
+  aiUpsellIntent  String  @default("related")
+  aiUpsellLimit   Int     @default(4)
+
+  // Custom code injection
+  customCss String @default("")
+  customJs  String @default("")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

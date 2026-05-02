@@ -37,6 +37,8 @@ export const action = async ({ request }) => {
     tieredRewards:           String(form.get("tieredRewards") || "[]"),
     scrollableItems:         form.get("scrollableItems") === "true",
     showLineItemProperties:  form.get("showLineItemProperties") === "true",
+    customCss:               String(form.get("customCss") || ""),
+    customJs:                String(form.get("customJs")  || ""),
   };
 
   await prisma.cartSettings.upsert({
@@ -76,6 +78,8 @@ export default function GeneralSettings() {
   const [tieredRewardsEnabled,    setTieredRewardsEnabled]    = useState(s.tieredRewardsEnabled ?? false);
   const [scrollableItems,         setScrollableItems]         = useState(s.scrollableItems ?? true);
   const [showLineItemProperties,  setShowLineItemProperties]  = useState(s.showLineItemProperties ?? false);
+  const [customCss,               setCustomCss]               = useState(s.customCss ?? "");
+  const [customJs,                setCustomJs]                = useState(s.customJs  ?? "");
   const [tieredRewards,           setTieredRewards]           = useState(() => {
     try { return JSON.parse(s.tieredRewards || "[]"); } catch { return []; }
   });
@@ -109,6 +113,8 @@ export default function GeneralSettings() {
         tieredRewards:          JSON.stringify(tieredRewards),
         scrollableItems:        String(scrollableItems),
         showLineItemProperties: String(showLineItemProperties),
+        customCss,
+        customJs,
       },
       { method: "POST" }
     );
@@ -375,6 +381,67 @@ export default function GeneralSettings() {
             checked={orderNotesEnabled}
             onChange={setOrderNotesEnabled}
           />
+        </s-stack>
+      </s-section>
+
+      {/* ── Custom Code ── */}
+      <s-section heading="Custom CSS &amp; JavaScript">
+        <s-stack direction="block" gap="base">
+          <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
+            Inject custom styles and scripts into your side cart. Use this to override
+            colours, fonts, layout, or add any DOM manipulation — exactly like other
+            side-cart apps. Changes apply to every customer on your store.
+          </p>
+
+          {/* Custom CSS */}
+          <div>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4, color: "#374151" }}>
+              Custom CSS
+            </label>
+            <p style={{ fontSize: 12, color: "#9ca3af", margin: "0 0 8px" }}>
+              Target any side-cart element. Example: <code style={{ background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>.ec-checkout-btn {"{ background: #e63946; }"}</code>
+            </p>
+            <textarea
+              value={customCss}
+              onChange={e => setCustomCss(e.target.value)}
+              rows={10}
+              spellCheck={false}
+              placeholder={`/* Custom CSS — targets your side cart */\n.ec-checkout-btn {\n  background: #e63946;\n  border-radius: 4px;\n}\n\n.ec-cart {\n  font-family: 'Your Font', sans-serif;\n}`}
+              style={{
+                width: "100%", display: "block", fontFamily: "monospace", fontSize: 12,
+                padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 6,
+                background: "#1e1e2e", color: "#cdd6f4", lineHeight: 1.6,
+                resize: "vertical", boxSizing: "border-box", outline: "none",
+              }}
+            />
+          </div>
+
+          {/* Custom JS */}
+          <div>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4, color: "#374151" }}>
+              Custom JavaScript
+            </label>
+            <p style={{ fontSize: 12, color: "#9ca3af", margin: "0 0 8px" }}>
+              Runs once after the side cart initialises. Access <code style={{ background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>document</code>, <code style={{ background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>window</code>, and any global library already on the page.
+            </p>
+            <textarea
+              value={customJs}
+              onChange={e => setCustomJs(e.target.value)}
+              rows={10}
+              spellCheck={false}
+              placeholder={`// Custom JavaScript — runs after EdgeCart loads\n\n// Example: log when cart opens\ndocument.addEventListener('EdgeCart:open', function() {\n  console.log('Cart opened');\n});\n\n// Example: change button text\nvar btn = document.querySelector('.ec-checkout-btn');\nif (btn) btn.textContent = 'Buy Now';`}
+              style={{
+                width: "100%", display: "block", fontFamily: "monospace", fontSize: 12,
+                padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 6,
+                background: "#1e1e2e", color: "#cdd6f4", lineHeight: 1.6,
+                resize: "vertical", boxSizing: "border-box", outline: "none",
+              }}
+            />
+          </div>
+
+          <p style={{ fontSize: 11, color: "#d97706", margin: 0 }}>
+            ⚠ Custom code runs on your live storefront. Test thoroughly before saving.
+          </p>
         </s-stack>
       </s-section>
 
